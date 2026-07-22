@@ -1,49 +1,79 @@
-# Erlang C Calculator and CDR Staffing Tool
+# Erlang C Calculator and API
 
-A command-line Python application for call-center workforce calculations using the Erlang C model. It can calculate Average Handle Time (AHT), offered traffic, service-level metrics, required staffing, and interval-level staffing forecasts from Call Detail Record (CDR) CSV files.
+A Python toolkit for call-centre workload analysis and staffing forecasts using Erlang C. The project supports:
 
-The application uses `pandas` for data processing and `pyworkforce` for Erlang C calculations.
+- an interactive command-line calculator;
+- batch processing of Call Detail Record (CDR) CSV files; and
+- a FastAPI REST service for calculator and CDR forecasting operations.
 
-## Features
+## Main capabilities
 
-- Calculate Average Handle Time (AHT)
-- Calculate offered traffic in Erlangs
-- Calculate:
-  - Probability of waiting
-  - Average Speed of Answer (ASA)
-  - Service level
-  - Agent occupancy
-- Estimate raw and scheduled agent requirements
-- Apply shrinkage to staffing calculations
-- Read and clean CDR CSV files
-- Aggregate calls into 15-, 30-, 60-minute, or custom intervals
-- Export interval staffing forecasts to CSV
-- Display a summary of raw and cleaned CDR data
+- Calculate Average Handle Time (AHT).
+- Calculate offered traffic in Erlangs.
+- Calculate probability of waiting, Average Speed of Answer (ASA), service level, and occupancy.
+- Calculate raw and scheduled agent requirements, including shrinkage.
+- Read and clean CDR files in several common encodings.
+- Aggregate answered calls into 15-, 30-, 60-minute, or custom intervals.
+- Export interval staffing forecasts to CSV through the CLI.
+- Upload a CDR file and receive a JSON forecast through the API.
+- Use automatically generated Swagger and ReDoc API documentation.
+
+## Project structure
+
+Use these conventional filenames in the project directory:
+
+```text
+.
+├── api.py                 # FastAPI application
+├── calculator.py          # Erlang C calculations, CDR processing, and CLI
+├── README.md
+└── API_DOCUMENTATION.md
+```
+
+The API imports functions from `calculator`, so the calculator module must be named `calculator.py` and be in the same directory as `api.py`.
 
 ## Requirements
 
-- Python 3.9 or later
-- pandas
-- pyworkforce
+- Python 3.9 or newer
+- `pandas`
+- `pyworkforce`
+- `fastapi`
+- `uvicorn`
+- `python-multipart`
 
-Install the dependencies with:
+Install the dependencies:
 
 ```bash
-pip install pandas pyworkforce
+python -m pip install pandas pyworkforce fastapi uvicorn python-multipart
 ```
 
-## Running the Application
+A virtual environment is recommended:
 
-Run the script from a terminal:
+```bash
+python -m venv .venv
+```
+
+Activate it on Windows:
+
+```powershell
+.venv\Scripts\activate
+```
+
+Activate it on macOS or Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+## Run the command-line calculator
 
 ```bash
 python calculator.py
 ```
 
-The interactive menu will appear:
+The menu provides the following operations:
 
 ```text
-===== Erlang C Calculator =====
 A - Calculate AHT
 T - Calculate Traffic / Offered Load
 E - Calculate Erlang C outputs
@@ -53,157 +83,85 @@ C - Process CDR CSV file
 Q - Quit
 ```
 
-Enter the letter for the operation you want to perform.
+### CLI calculations
 
-## Menu Options
-
-### A — Calculate AHT
-
-Calculates Average Handle Time:
+#### AHT
 
 ```text
-AHT = total handle time / total answered calls
+AHT = total handle time in seconds / answered calls
 ```
 
-Example inputs:
+#### Traffic
 
 ```text
-Total handle time in seconds: 18000
-Total answered calls: 100
+Traffic (Erlangs) = call volume × AHT / interval seconds
 ```
 
-Result:
+#### Required agents
 
-```text
-AHT = 180.00 seconds
+The required-agent calculation uses:
+
+- forecast call volume;
+- AHT in seconds;
+- interval length;
+- target answer time;
+- target service level; and
+- shrinkage.
+
+`raw_agents` is the number of agents required to be actively available. `scheduled_agents` includes the additional staffing required for shrinkage.
+
+Service level and shrinkage can be supplied as decimal or whole-number percentages. For example, `0.80`, `80`, and `80%` all represent 80% in the CLI calculation functions.
+
+## Run the API
+
+From the project directory:
+
+```bash
+uvicorn api:app --reload
 ```
 
-### T — Calculate Traffic
+The default local URLs are:
 
-Calculates offered traffic in Erlangs:
+- API root: `http://127.0.0.1:8000/`
+- Health check: `http://127.0.0.1:8000/health`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- ReDoc: `http://127.0.0.1:8000/redoc`
 
-```text
-Traffic = call volume × AHT / interval length
-```
+For a production-style launch, omit `--reload` and configure an appropriate host, port, process manager, and reverse proxy.
 
-Example inputs:
+## API overview
 
-```text
-Call volume: 120
-AHT in seconds: 240
-Interval in seconds: 3600
-```
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/` | Basic service information |
+| `GET` | `/health` | Health check |
+| `POST` | `/api/v1/aht` | Calculate Average Handle Time |
+| `POST` | `/api/v1/traffic` | Calculate traffic in Erlangs |
+| `POST` | `/api/v1/erlang-outputs` | Calculate Erlang C performance outputs |
+| `POST` | `/api/v1/required-agents` | Calculate raw and scheduled agents |
+| `POST` | `/api/v1/cdr/forecast` | Upload a CDR file and build an interval forecast |
 
-### E — Calculate Erlang C Outputs
+Detailed request and response examples are available in [API_DOCUMENTATION.md](API_DOCUMENTATION.md).
 
-Calculates Erlang C performance metrics for a specified traffic load and number of agents.
+## CDR input format
 
-Required inputs:
-
-- Traffic in Erlangs
-- Number of agents
-- AHT in seconds
-- Target answer time in seconds
-
-Outputs:
-
-- Probability of waiting
-- Average Speed of Answer (ASA)
-- Service level
-- Occupancy
-
-### R — Calculate Required Agents
-
-Estimates the number of agents needed to meet a service-level target.
-
-Required inputs:
-
-- Forecast call volume
-- AHT in seconds
-- Interval length in seconds
-- Target answer time in seconds
-- Target service level
-- Shrinkage
-
-Percentages may be entered in any of these forms:
+The CDR reader expects seven columns without a header row, in this order:
 
 ```text
-80%
-80
-0.80
+source,destination,call_datetime,duration,disposition,unique_id,caller_id
 ```
 
 Example:
 
 ```text
-Forecast calls: 100
-AHT in seconds: 240
-Interval seconds: 3600
-Target answer time seconds: 20
-Target service level: 80%
-Shrinkage: 30%
+1001,2001,2025-Jan-15 03:25:10 PM,00:03:45,Answered,abc123,0771234567
 ```
 
-Outputs include:
+Supported read attempts are:
 
-- Traffic in Erlangs
-- Raw agents required
-- Scheduled agents after shrinkage
-- Achieved service level
-- Probability of waiting
-- Occupancy
-- ASA
-
-### S — Show CDR Summary
-
-Reads a CDR file and displays:
-
-- Total raw rows
-- Disposition counts
-- Date range
-- Number of cleaned answered calls
-- Average AHT
-- Median AHT
-- Maximum included duration
-
-### C — Process a CDR CSV File
-
-Cleans and groups CDR data into time intervals, calculates staffing requirements for each interval, and saves the results to a CSV file.
-
-Required inputs:
-
-- CDR CSV path
-- Interval length in minutes
-- Target answer time in seconds
-- Target service level
-- Shrinkage
-- Output CSV path
-
-If the output path is left blank, the program writes to:
-
-```text
-erlang_c_output.csv
-```
-
-## CDR Input Format
-
-The script expects a headerless CDR file with these columns in this exact order:
-
-| Position | Column | Description |
-|---:|---|---|
-| 1 | `source` | Calling party/source |
-| 2 | `destination` | Called party/destination |
-| 3 | `call_datetime` | Call date and time |
-| 4 | `duration` | Call duration in `HH:MM:SS` format |
-| 5 | `disposition` | Call result, such as `Answered` |
-| 6 | `unique_id` | Unique call identifier |
-| 7 | `caller_id` | Caller ID value |
-
-Example row:
-
-```text
-1001,2001,2026-Jan-15 09:30:00 AM,00:03:45,Answered,abc123,+94111234567
-```
+1. UTF-16 tab-separated;
+2. UTF-8 with BOM, comma-separated; and
+3. Latin-1, comma-separated.
 
 The expected date format is:
 
@@ -211,89 +169,78 @@ The expected date format is:
 YYYY-Mon-DD HH:MM:SS AM/PM
 ```
 
-Example:
+The duration format is:
 
 ```text
-2026-Jan-15 09:30:00 AM
+HH:MM:SS
 ```
 
-The file reader attempts these formats automatically:
+## CDR cleaning rules
 
-1. UTF-16, tab-separated
-2. UTF-8 with BOM, comma-separated
-3. Latin-1, comma-separated
+By default, preprocessing keeps records only when:
 
-## CDR Cleaning Rules
+- the date and duration can be parsed;
+- source and destination are present;
+- disposition is exactly `Answered`;
+- duration is between 1 second and 4 hours; and
+- destination is not `s`, ignoring letter case.
 
-By default, the application:
+The cleaned calls are sorted by call time before interval aggregation.
 
-- Includes only rows with disposition `Answered`
-- Rejects invalid dates
-- Rejects invalid durations
-- Rejects rows missing source or destination
-- Includes durations from 1 second through 4 hours
-- Excludes rows whose destination is `s`
-- Sorts the cleaned rows by call date and time
+## Interval forecast output
 
-## Output CSV Columns
+For each non-empty interval, the project calculates:
 
-The interval forecast contains:
-
-| Column | Description |
+| Field | Description |
 |---|---|
-| `interval_start` | Start time of the interval |
-| `call_volume` | Number of included calls |
-| `aht_seconds` | Average handle time |
-| `traffic_erlangs` | Offered traffic |
-| `raw_agents` | Agents required before shrinkage |
-| `scheduled_agents` | Agents required after shrinkage |
+| `interval_start` | Beginning of the interval |
+| `call_volume` | Number of valid answered calls |
+| `aht_seconds` | Mean call duration in seconds |
+| `traffic_erlangs` | Offered workload |
+| `raw_agents` | Agents required online and available |
+| `scheduled_agents` | Agents to roster after shrinkage |
 | `service_level_percent` | Achieved service level |
-| `probability_waiting_percent` | Probability that a call waits |
-| `occupancy_percent` | Agent occupancy |
+| `probability_waiting_percent` | Estimated chance that a caller waits |
+| `occupancy_percent` | Estimated agent occupancy |
 | `asa_seconds` | Average Speed of Answer |
 
-## Using the Module in Python
+## Example API request
 
-The functions can also be imported into another Python program.
+Calculate required agents:
 
-```python
-from calculator import required_agents
-
-result = required_agents(
-    call_volume=100,
-    aht_seconds=240,
-    interval_seconds=3600,
-    target_seconds=20,
-    target_service_level="80%",
-    shrinkage="30%",
-)
-
-print(result)
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/required-agents" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "call_volume": 100,
+    "aht_seconds": 180,
+    "interval_seconds": 3600,
+    "target_seconds": 20,
+    "target_service_level": 80,
+    "shrinkage": 30,
+    "max_agents": 1000
+  }'
 ```
 
-Process a CDR file programmatically:
+Upload a CDR file:
 
-```python
-from calculator import process_cdr_for_erlang
-
-forecast = process_cdr_for_erlang(
-    file_path="calls.csv",
-    interval_minutes=30,
-    target_seconds=20,
-    target_service_level="80%",
-    shrinkage="30%",
-    output_path="staffing_forecast.csv",
-)
-
-print(forecast.head())
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/cdr/forecast" \
+  -F "file=@calls.csv" \
+  -F "interval_minutes=60" \
+  -F "target_seconds=20" \
+  -F "target_service_level=80" \
+  -F "shrinkage=30"
 ```
 
-## Important Notes
+## Important limitations
 
-- AHT, interval length, and target answer time must use compatible time units. The interactive application expects seconds for these values unless otherwise stated.
-- Shrinkage must be less than 100%.
-- Erlang C assumes calls queue until answered and does not directly model abandonment, callbacks, retrials, or blended workloads.
-- Forecast accuracy depends on the quality of the call-volume and AHT inputs.
-- Intervals with no included calls are omitted from the exported forecast.
+- The Erlang C model assumes a queue without abandonment and is most suitable when calls wait until answered.
+- CDR duration is treated as handle time. If after-call work is not included in the source data, calculated AHT and staffing may be understated.
+- Only intervals containing valid answered calls are returned.
+- The API returns `null` for ASA when the supplied agent count does not exceed traffic in the `/api/v1/erlang-outputs` calculation.
+- The current implementation has no authentication, authorization, rate limiting, persistent storage, or background job processing.
 
+## Further documentation
 
+See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for endpoint-level documentation, validation rules, status codes, examples, and processing details.
