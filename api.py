@@ -1,14 +1,19 @@
+from __future__ import annotations
+
+import tempfile
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Annotated
 
-import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from calculator import (
     average_speed_of_answer,
+    build_dashboard_aggregates,
     build_interval_forecast,
+    build_multi_dataset_forecast,
     calculate_aht,
     calculate_traffic,
     erlang_c_probability,
@@ -18,17 +23,16 @@ from calculator import (
     service_level,
 )
 
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+STATIC_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(
-    title="Erlang C Calculator API",
-    description="REST API for call-centre Erlang C calculations and CDR processing.",
-    version="1.0.0",
+    title="Erlang C Multi-Dataset Forecast API",
+    description="Upload any number of yearly CDR datasets and create one 365-day average Erlang C forecast.",
+    version="3.0.0",
 )
 
-
-# -------------------------------------------------------------------
-# Request models
-# -------------------------------------------------------------------
 
 class AHTRequest(BaseModel):
     total_handle_time_seconds: float = Field(gt=0)
@@ -53,50 +57,31 @@ class RequiredAgentsRequest(BaseModel):
     aht_seconds: float = Field(gt=0)
     interval_seconds: float = Field(gt=0)
     target_seconds: float = Field(ge=0)
-
-    # Both 80 and 0.80 are accepted by your clean_percent function.
     target_service_level: float = Field(gt=0)
-
-    # Both 30 and 0.30 are accepted.
     shrinkage: float = Field(default=0, ge=0)
-
     max_agents: int = Field(default=1000, gt=0)
 
 
-# -------------------------------------------------------------------
-# General endpoints
-# -------------------------------------------------------------------
-
 @app.get("/")
-def root() -> dict:
-    return {
-        "message": "Erlang C Calculator API",
-        "documentation": "/docs",
-        "health": "/health",
-    }
+def dashboard():
+    index_path = STATIC_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"message": "Erlang C Multi-Dataset Forecast API", "documentation": "/docs"}
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "healthy"}
+    return {"status": "healthy", "version": "3.0.0"}
 
-
-# -------------------------------------------------------------------
-# Calculator endpoints
-# -------------------------------------------------------------------
 
 @app.post("/api/v1/aht")
 def get_aht(request: AHTRequest) -> dict:
     try:
-        result = calculate_aht(
-            total_handle_time_seconds=request.total_handle_time_seconds,
-            total_answered_calls=request.total_answered_calls,
-        )
-
-        return {
-            "aht_seconds": round(result, 2),
-        }
-
+        return {"aht_seconds": round(calculate_aht(
+            request.total_handle_time_seconds,
+            request.total_answered_calls,
+        ), 2)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -104,16 +89,11 @@ def get_aht(request: AHTRequest) -> dict:
 @app.post("/api/v1/traffic")
 def get_traffic(request: TrafficRequest) -> dict:
     try:
-        result = calculate_traffic(
-            call_volume=request.call_volume,
-            aht_seconds=request.aht_seconds,
-            interval_seconds=request.interval_seconds,
-        )
-
-        return {
-            "traffic_erlangs": round(result, 4),
-        }
-
+        return {"traffic_erlangs": round(calculate_traffic(
+            request.call_volume,
+            request.aht_seconds,
+            request.interval_seconds,
+        ), 4)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -121,114 +101,61 @@ def get_traffic(request: TrafficRequest) -> dict:
 @app.post("/api/v1/erlang-outputs")
 def get_erlang_outputs(request: ErlangOutputsRequest) -> dict:
     try:
-        probability_waiting = erlang_c_probability(
-            traffic=request.traffic_erlangs,
-            agents=request.agents,
+        waiting = erlang_c_probability(request.traffic_erlangs, request.agents)
+        asa = average_speed_of_answer(
+            waiting, request.aht_seconds, request.agents, request.traffic_erlangs
         )
-
-        asa_seconds = average_speed_of_answer(
-            erlang_c=probability_waiting,
-            aht_seconds=request.aht_seconds,
-            agents=request.agents,
-            traffic=request.traffic_erlangs,
+        sl = service_level(
+            waiting,
+            request.agents,
+            request.traffic_erlangs,
+            request.target_seconds,
+            request.aht_seconds,
         )
-
-        calculated_service_level = service_level(
-            erlang_c=probability_waiting,
-            agents=request.agents,
-            traffic=request.traffic_erlangs,
-            target_seconds=request.target_seconds,
-            aht_seconds=request.aht_seconds,
-        )
-
-        calculated_occupancy = occupancy(
-            traffic=request.traffic_erlangs,
-            agents=request.agents,
-        )
-
+        occ = occupancy(request.traffic_erlangs, request.agents)
         return {
             "traffic_erlangs": request.traffic_erlangs,
             "agents": request.agents,
-            "probability_waiting": round(probability_waiting, 6),
-            "probability_waiting_percent": round(
-                probability_waiting * 100,
-                2,
-            ),
-            "asa_seconds": (
-                None if asa_seconds == float("inf")
-                else round(asa_seconds, 2)
-            ),
-            "service_level": round(calculated_service_level, 6),
-            "service_level_percent": round(
-                calculated_service_level * 100,
-                2,
-            ),
-            "occupancy": round(calculated_occupancy, 6),
-            "occupancy_percent": round(
-                calculated_occupancy * 100,
-                2,
-            ),
+            "probability_waiting_percent": round(waiting * 100, 2),
+            "asa_seconds": None if asa == float("inf") else round(asa, 2),
+            "service_level_percent": round(sl * 100, 2),
+            "occupancy_percent": round(occ * 100, 2),
         }
-
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Calculation failed: {exc}",
-        ) from exc
 
 
 @app.post("/api/v1/required-agents")
 def get_required_agents(request: RequiredAgentsRequest) -> dict:
     try:
         result = required_agents(
-            call_volume=request.call_volume,
-            aht_seconds=request.aht_seconds,
-            interval_seconds=request.interval_seconds,
-            target_seconds=request.target_seconds,
-            target_service_level=request.target_service_level,
-            shrinkage=request.shrinkage,
-            max_agents=request.max_agents,
+            request.call_volume,
+            request.aht_seconds,
+            request.interval_seconds,
+            request.target_seconds,
+            request.target_service_level,
+            request.shrinkage,
+            request.max_agents,
         )
-
         return {
             "traffic_erlangs": round(result["traffic_erlangs"], 4),
             "raw_agents": result["raw_agents"],
             "scheduled_agents": result["scheduled_agents"],
-            "service_level": round(result["service_level"], 6),
-            "service_level_percent": round(
-                result["service_level"] * 100,
-                2,
-            ),
-            "probability_waiting": round(
-                result["probability_waiting"],
-                6,
-            ),
-            "probability_waiting_percent": round(
-                result["probability_waiting"] * 100,
-                2,
-            ),
-            "occupancy": round(result["occupancy"], 6),
-            "occupancy_percent": round(
-                result["occupancy"] * 100,
-                2,
-            ),
+            "service_level_percent": round(result["service_level"] * 100, 2),
+            "probability_waiting_percent": round(result["probability_waiting"] * 100, 2),
+            "occupancy_percent": round(result["occupancy"] * 100, 2),
             "asa_seconds": round(result["asa_seconds"], 2),
         }
-
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Calculation failed: {exc}",
-        ) from exc
 
 
-# -------------------------------------------------------------------
-# CDR file endpoint
-# -------------------------------------------------------------------
+async def _save_upload(upload: UploadFile, destination: Path) -> None:
+    content = await upload.read()
+    if not content:
+        raise HTTPException(status_code=400, detail=f"{upload.filename or 'Uploaded file'} is empty.")
+    destination.write_bytes(content)
+
 
 @app.post("/api/v1/cdr/forecast")
 async def forecast_from_cdr(
@@ -238,106 +165,110 @@ async def forecast_from_cdr(
     target_service_level: Annotated[float, Form()] = 80,
     shrinkage: Annotated[float, Form()] = 30,
 ) -> dict:
-    if interval_minutes <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="interval_minutes must be greater than 0.",
-        )
-
-    file_extension = Path(file.filename or "cdr.csv").suffix or ".csv"
-
     try:
-        file_content = await file.read()
-
-        if not file_content:
-            raise HTTPException(
-                status_code=400,
-                detail="The uploaded file is empty.",
-            )
-
-        with NamedTemporaryFile(
-            mode="wb",
-            suffix=file_extension,
-            delete=False,
-        ) as temporary_file:
-            temporary_file.write(file_content)
-            temporary_path = temporary_file.name
-
-        clean_df = preprocess_cdr(temporary_path)
-
-        if clean_df.empty:
-            raise HTTPException(
-                status_code=400,
-                detail="No valid answered calls were found in the file.",
-            )
-
-        interval_df = build_interval_forecast(
-            clean_df,
-            interval_minutes=interval_minutes,
-        )
-
-        forecast = []
-
-        for _, row in interval_df.iterrows():
-            result = required_agents(
-                call_volume=float(row["call_volume"]),
-                aht_seconds=float(row["aht_seconds"]),
-                interval_seconds=float(row["interval_seconds"]),
-                target_seconds=target_seconds,
-                target_service_level=target_service_level,
-                shrinkage=shrinkage,
-            )
-
-            forecast.append(
-                {
-                    "interval_start": row["call_datetime"].isoformat(),
-                    "call_volume": int(row["call_volume"]),
-                    "aht_seconds": round(
-                        float(row["aht_seconds"]),
-                        2,
-                    ),
-                    "traffic_erlangs": round(
-                        result["traffic_erlangs"],
-                        4,
-                    ),
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / (file.filename or "cdr.csv")
+            await _save_upload(file, path)
+            clean = preprocess_cdr(path)
+            intervals = build_interval_forecast(clean, interval_minutes)
+            rows = []
+            for row in intervals.itertuples(index=False):
+                result = required_agents(
+                    row.call_volume,
+                    float(row.aht_seconds),
+                    row.interval_seconds,
+                    target_seconds,
+                    target_service_level,
+                    shrinkage,
+                )
+                rows.append({
+                    "interval_start": row.call_datetime.isoformat(),
+                    "call_volume": int(row.call_volume),
+                    "aht_seconds": round(float(row.aht_seconds), 2),
+                    "traffic_erlangs": round(result["traffic_erlangs"], 4),
                     "raw_agents": result["raw_agents"],
                     "scheduled_agents": result["scheduled_agents"],
-                    "service_level_percent": round(
-                        result["service_level"] * 100,
-                        2,
-                    ),
-                    "probability_waiting_percent": round(
-                        result["probability_waiting"] * 100,
-                        2,
-                    ),
-                    "occupancy_percent": round(
-                        result["occupancy"] * 100,
-                        2,
-                    ),
-                    "asa_seconds": round(
-                        result["asa_seconds"],
-                        2,
-                    ),
-                }
-            )
-
-        return {
-            "filename": file.filename,
-            "interval_minutes": interval_minutes,
-            "valid_call_count": len(clean_df),
-            "interval_count": len(forecast),
-            "forecast": forecast,
-        }
-
+                    "service_level_percent": round(result["service_level"] * 100, 2),
+                    "probability_waiting_percent": round(result["probability_waiting"] * 100, 2),
+                    "occupancy_percent": round(result["occupancy"] * 100, 2),
+                    "asa_seconds": round(result["asa_seconds"], 2),
+                })
+            return {
+                "filename": file.filename,
+                "interval_minutes": interval_minutes,
+                "valid_call_count": int(len(clean)),
+                "interval_count": int(len(rows)),
+                "forecast": rows,
+            }
     except HTTPException:
         raise
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"CDR processing failed: {exc}",
-        ) from exc
-    finally:
-        if "temporary_path" in locals():
-            Path(temporary_path).unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Forecast failed: {exc}") from exc
+
+
+@app.post("/api/v1/cdr/multi-dataset-forecast")
+async def multi_dataset_forecast(
+    files: Annotated[list[UploadFile], File(description="Two or more full-year CDR CSV files")],
+    interval_minutes: Annotated[int, Form()] = 30,
+    target_seconds: Annotated[float, Form()] = 20,
+    target_service_level: Annotated[float, Form()] = 80,
+    shrinkage: Annotated[float, Form()] = 30,
+    max_agents: Annotated[int, Form()] = 1000,
+    include_forecast_rows: Annotated[bool, Form()] = True,
+) -> dict:
+    if len(files) < 2:
+        raise HTTPException(status_code=400, detail="Upload at least two yearly CDR datasets.")
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths: list[Path] = []
+            filenames: list[str] = []
+            for index, upload in enumerate(files, start=1):
+                filename = upload.filename or f"dataset_{index}.csv"
+                suffix = Path(filename).suffix or ".csv"
+                path = Path(temp_dir) / f"dataset_{index}{suffix}"
+                await _save_upload(upload, path)
+                paths.append(path)
+                filenames.append(filename)
+
+            forecast, summary = build_multi_dataset_forecast(
+                file_paths=paths,
+                filenames=filenames,
+                interval_minutes=interval_minutes,
+                target_seconds=target_seconds,
+                target_service_level=target_service_level,
+                shrinkage=shrinkage,
+                max_agents=max_agents,
+            )
+            response = {
+                **summary,
+                "parameters": {
+                    "interval_minutes": interval_minutes,
+                    "target_seconds": target_seconds,
+                    "target_service_level_percent": target_service_level,
+                    "shrinkage_percent": shrinkage,
+                    "max_agents": max_agents,
+                },
+                "charts": build_dashboard_aggregates(forecast),
+            }
+
+            if include_forecast_rows:
+                serializable = forecast.copy()
+                serializable["interval_start"] = serializable["interval_start"].dt.strftime(
+                    "%Y-%m-%dT%H:%M:%S"
+                )
+                response["forecast"] = serializable.to_dict(orient="records")
+            else:
+                response["forecast"] = []
+            return response
+    except HTTPException:
+        raise
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Multi-dataset forecast failed: {exc}") from exc
+
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
