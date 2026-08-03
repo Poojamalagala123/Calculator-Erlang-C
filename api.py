@@ -14,6 +14,7 @@ from calculator import (
     build_dashboard_aggregates,
     build_interval_forecast,
     build_multi_dataset_forecast,
+    build_stl_forecast,
     calculate_aht,
     calculate_traffic,
     erlang_c_probability,
@@ -30,7 +31,7 @@ STATIC_DIR.mkdir(exist_ok=True)
 app = FastAPI(
     title="Erlang C Multi-Dataset Forecast API",
     description="Upload any number of yearly CDR datasets and create one 365-day average Erlang C forecast.",
-    version="3.0.0",
+    version="4.0.0",
 )
 
 
@@ -72,7 +73,7 @@ def dashboard():
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "healthy", "version": "3.0.0"}
+    return {"status": "healthy", "version": "4.0.0"}
 
 
 @app.post("/api/v1/aht")
@@ -269,6 +270,74 @@ async def multi_dataset_forecast(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Multi-dataset forecast failed: {exc}") from exc
+
+
+@app.post("/api/v1/cdr/stl-forecast")
+async def stl_forecast(
+    files: Annotated[list[UploadFile], File(description="One or more full-year CDR CSV files")],
+    interval_minutes: Annotated[int, Form()] = 30,
+    forecast_days: Annotated[int, Form()] = 365,
+    seasonal_period: Annotated[int | None, Form()] = None,
+    trend_lookback_days: Annotated[int, Form()] = 90,
+    target_seconds: Annotated[float, Form()] = 20,
+    target_service_level: Annotated[float, Form()] = 80,
+    shrinkage: Annotated[float, Form()] = 30,
+    max_agents: Annotated[int, Form()] = 1000,
+    include_forecast_rows: Annotated[bool, Form()] = True,
+) -> dict:
+    if not files:
+        raise HTTPException(status_code=400, detail="Upload at least one yearly CDR dataset.")
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths: list[Path] = []
+            filenames: list[str] = []
+            for index, upload in enumerate(files, start=1):
+                filename = upload.filename or f"dataset_{index}.csv"
+                suffix = Path(filename).suffix or ".csv"
+                path = Path(temp_dir) / f"dataset_{index}{suffix}"
+                await _save_upload(upload, path)
+                paths.append(path)
+                filenames.append(filename)
+
+            forecast, summary = build_stl_forecast(
+                file_paths=paths,
+                filenames=filenames,
+                interval_minutes=interval_minutes,
+                forecast_days=forecast_days,
+                seasonal_period=seasonal_period,
+                trend_lookback_days=trend_lookback_days,
+                target_seconds=target_seconds,
+                target_service_level=target_service_level,
+                shrinkage=shrinkage,
+                max_agents=max_agents,
+            )
+            response = {
+                **summary,
+                "parameters": {
+                    "interval_minutes": interval_minutes,
+                    "forecast_days": forecast_days,
+                    "seasonal_period": summary["seasonal_period"],
+                    "trend_lookback_days": trend_lookback_days,
+                    "target_seconds": target_seconds,
+                    "target_service_level_percent": target_service_level,
+                    "shrinkage_percent": shrinkage,
+                    "max_agents": max_agents,
+                },
+                "charts": build_dashboard_aggregates(forecast),
+            }
+            if include_forecast_rows:
+                serializable = forecast.copy()
+                serializable["interval_start"] = serializable["interval_start"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+                response["forecast"] = serializable.to_dict(orient="records")
+            else:
+                response["forecast"] = []
+            return response
+    except HTTPException:
+        raise
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"STL forecast failed: {exc}") from exc
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
