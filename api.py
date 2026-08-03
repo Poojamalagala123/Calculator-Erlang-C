@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import tempfile
 from pathlib import Path
@@ -8,6 +8,8 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from stl_api import router as stl_router
 
 from calculator import (
     average_speed_of_answer,
@@ -30,7 +32,7 @@ STATIC_DIR.mkdir(exist_ok=True)
 app = FastAPI(
     title="Erlang C Multi-Dataset Forecast API",
     description="Upload any number of yearly CDR datasets and create one 365-day average Erlang C forecast.",
-    version="3.0.0",
+    version="3.1.0",
 )
 
 
@@ -64,7 +66,7 @@ class RequiredAgentsRequest(BaseModel):
 
 @app.get("/")
 def dashboard():
-    index_path = STATIC_DIR / "index.html"
+    index_path = BASE_DIR / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
     return {"message": "Erlang C Multi-Dataset Forecast API", "documentation": "/docs"}
@@ -72,7 +74,7 @@ def dashboard():
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "healthy", "version": "3.0.0"}
+    return {"status": "healthy", "version": "3.1.0"}
 
 
 @app.post("/api/v1/aht")
@@ -271,4 +273,7 @@ async def multi_dataset_forecast(
         raise HTTPException(status_code=500, detail=f"Multi-dataset forecast failed: {exc}") from exc
 
 
+app.include_router(stl_router)
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+

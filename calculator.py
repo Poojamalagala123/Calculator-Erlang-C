@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
@@ -571,6 +571,7 @@ def build_multi_dataset_forecast(
     target_percent = clean_percent(target_service_level) * 100
     peak_row = forecast.loc[forecast["call_volume"].idxmax()]
     summary = {
+        "forecast_method": "average",
         "logic": "Average matching month/day/time intervals across all uploaded yearly datasets.",
         "dataset_count": source_summary["dataset_count"],
         "historical_years": source_summary["historical_years"],

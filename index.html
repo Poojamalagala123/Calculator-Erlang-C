@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Erlang C Average-Year Dashboard</title>
+    <title>Erlang C Forecasting Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -18,7 +18,7 @@
         .form-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 14px; align-items: end; }
         .file-group { grid-column: 1 / -1; }
         label { display: block; margin-bottom: 6px; font-weight: 700; }
-        input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
         input[type=file] { padding: 12px; }
         button { padding: 11px 16px; border: 0; border-radius: 6px; background: #1769aa; color: #fff; font-weight: 700; cursor: pointer; }
         button.secondary { background: #4b5563; }
@@ -35,6 +35,7 @@
         .chart-box { padding: 18px; min-height: 360px; }
         .chart-container { position: relative; height: 285px; }
         .table-box { margin-top: 20px; padding: 18px; overflow-x: auto; }
+        .table-scroll { max-height: 500px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; min-width: 1200px; }
         th, td { padding: 9px; border-bottom: 1px solid #e5e7eb; text-align: left; white-space: nowrap; }
         th { background: #f3f4f6; position: sticky; top: 0; }
@@ -45,8 +46,8 @@
 </head>
 <body>
 <div class="container">
-    <h1>Erlang C Average-Year Dashboard</h1>
-    <p class="subtitle">Upload any number of full-year CDR datasets. The system creates one 365-day average dataset, runs Erlang C, and displays charts and tables.</p>
+    <h1>Erlang C Forecasting Dashboard</h1>
+    <p class="subtitle">Upload consecutive full-year CDR (Call Detail Record) datasets. Choose the average-year method or STL (Seasonal-Trend Decomposition using LOESS), then run Erlang C staffing calculations.</p>
 
     <div class="panel">
         <form id="forecastForm">
@@ -58,7 +59,7 @@
                     <div id="fileList" class="file-list"></div>
                 </div>
                 <div>
-                    <label for="interval">Interval minutes</label>
+                    <label for="forecastMethod">Forecasting method</label><select id="forecastMethod"><option value="average">Average year</option><option value="stl">STL decomposition</option></select></div><div><label for="interval">Interval minutes</label>
                     <input id="interval" type="number" min="1" step="1" value="30" required>
                 </div>
                 <div>
@@ -74,7 +75,7 @@
                     <input id="shrinkage" type="number" min="0" max="99.99" step="0.01" value="30" required>
                 </div>
                 <div class="actions">
-                    <button id="submitButton" type="submit">Create average dataset</button>
+                    <button id="submitButton" type="submit">Create forecast</button>
                     <button id="downloadButton" class="secondary" type="button" disabled>Download CSV</button>
                 </div>
             </div>
@@ -84,6 +85,7 @@
 
     <section id="results" hidden>
         <div class="cards">
+            <div class="card"><div class="card-title">Forecast method</div><div id="methodName" class="card-value">-</div></div>
             <div class="card"><div class="card-title">Datasets used</div><div id="datasetCount" class="card-value">0</div></div>
             <div class="card"><div class="card-title">Historical years</div><div id="historicalYears" class="card-value">-</div></div>
             <div class="card"><div class="card-title">Output days</div><div id="outputDays" class="card-value">365</div></div>
@@ -101,11 +103,13 @@
             <div class="chart-box"><h2>Service level and occupancy</h2><div class="chart-container"><canvas id="performanceChart"></canvas></div></div>
             <div class="chart-box"><h2>Average calls by weekday</h2><div class="chart-container"><canvas id="weekdayChart"></canvas></div></div>
             <div class="chart-box"><h2>Average calls by time</h2><div class="chart-container"><canvas id="timeChart"></canvas></div></div>
+            <div id="decompositionBox" class="chart-box" hidden><h2>STL historical decomposition</h2><div class="chart-container"><canvas id="decompositionChart"></canvas></div></div>
         </div>
 
         <div class="table-box">
             <h2>Predicted Erlang C details</h2>
             <p class="note">The table shows the first 500 rows for browser performance. The CSV download contains every interval.</p>
+            <div class="table-scroll">
             <table>
                 <thead><tr>
                     <th>Interval</th><th>Calls</th><th>AHT</th><th>Traffic</th><th>Raw agents</th><th>Scheduled agents</th>
@@ -113,6 +117,7 @@
                 </tr></thead>
                 <tbody id="forecastTableBody"></tbody>
             </table>
+            </div>
         </div>
     </section>
 </div>
@@ -120,6 +125,8 @@
 <script>
     const form = document.getElementById("forecastForm");
     const filesInput = document.getElementById("files");
+    const forecastMethod = document.getElementById("forecastMethod");
+    const decompositionBox = document.getElementById("decompositionBox");
     const fileList = document.getElementById("fileList");
     const statusElement = document.getElementById("status");
     const submitButton = document.getElementById("submitButton");
@@ -158,6 +165,7 @@
     }
 
     function renderSummary(data) {
+        document.getElementById("methodName").textContent = data.forecast_method === "stl" ? "STL" : "Average";
         document.getElementById("datasetCount").textContent = data.dataset_count;
         document.getElementById("historicalYears").textContent = data.historical_years.join(", ");
         document.getElementById("outputDays").textContent = data.days;
@@ -168,7 +176,7 @@
         document.getElementById("averageOccupancy").textContent = `${Number(data.average_occupancy_percent).toFixed(2)}%`;
     }
 
-    function renderCharts(chartData) {
+    function renderCharts(chartData, decomposition = []) {
         destroyCharts();
         const daily = chartData.daily;
         makeChart("dailyCallsChart", "line", daily.map(x => x.date), [
@@ -196,6 +204,14 @@
         makeChart("timeChart", "line", time.map(x => x.time_label), [
             { label: "Average calls", data: time.map(x => x.average_calls), borderWidth: 2, pointRadius: 1 }
         ], "Calls");
+        decompositionBox.hidden = !decomposition.length;
+        if (decomposition.length) {
+            makeChart("decompositionChart", "line", decomposition.map(x => x.interval_start), [
+                { label: "Observed calls", data: decomposition.map(x => x.observed_calls), borderWidth: 1, pointRadius: 0 },
+                { label: "Trend", data: decomposition.map(x => x.trend), borderWidth: 2, pointRadius: 0 },
+                { label: "Seasonal pattern", data: decomposition.map(x => x.seasonal), borderWidth: 1, pointRadius: 0 }
+            ], "Calls");
+        }
     }
 
     function renderTable(rows) {
@@ -257,6 +273,7 @@
         formData.append("target_service_level", document.getElementById("serviceLevel").value);
         formData.append("shrinkage", document.getElementById("shrinkage").value);
         formData.append("include_forecast_rows", "true");
+        const method = forecastMethod.value;
 
         submitButton.disabled = true;
         downloadButton.disabled = true;
@@ -264,18 +281,20 @@
         statusElement.textContent = "Processing datasets and running Erlang C. This may take a few minutes...";
 
         try {
-            const response = await fetch("/api/v1/cdr/multi-dataset-forecast", { method: "POST", body: formData });
+            const endpoint = method === "stl" ? "/api/v1/cdr/stl-forecast" : "/api/v1/cdr/multi-dataset-forecast";
+            const response = await fetch(endpoint, { method: "POST", body: formData });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || "Forecast failed.");
 
             forecastRows = data.forecast || [];
             renderSummary(data);
-            renderCharts(data.charts);
+            renderCharts(data.charts, data.decomposition || []);
             renderTable(forecastRows);
             resultsElement.hidden = false;
             downloadButton.disabled = !forecastRows.length;
             statusElement.className = "status success";
-            statusElement.textContent = `Completed: ${data.dataset_count} datasets averaged into ${data.days} days and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`;
+            const methodLabel = data.forecast_method === "stl" ? "STL decomposition" : "average-year";
+            statusElement.textContent = `Completed: ${methodLabel} forecast for ${data.days} days and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`;
         } catch (error) {
             statusElement.className = "status error";
             statusElement.textContent = error.message;
@@ -286,3 +305,7 @@
 </script>
 </body>
 </html>
+
+
+
+
