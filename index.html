@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Erlang C Average-Year Dashboard</title>
+    <title>Erlang C Average and STL Forecast Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -45,12 +45,19 @@
 </head>
 <body>
 <div class="container">
-    <h1>Erlang C Average-Year Dashboard</h1>
-    <p class="subtitle">Upload any number of full-year CDR datasets. The system creates one 365-day average dataset, runs Erlang C, and displays charts and tables.</p>
+    <h1>Erlang C Forecast Dashboard</h1>
+    <p class="subtitle">Choose the average-year method or STL decomposition, then run Erlang C staffing calculations and review charts and tables.</p>
 
     <div class="panel">
         <form id="forecastForm">
             <div class="form-grid">
+                <div>
+                    <label for="forecastMethod">Forecast method</label>
+                    <select id="forecastMethod" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;background:#fff">
+                        <option value="average">Average matching intervals</option>
+                        <option value="stl">STL decomposition</option>
+                    </select>
+                </div>
                 <div class="file-group">
                     <label for="files">Yearly CDR datasets</label>
                     <input id="files" type="file" accept=".csv,.txt,text/csv" multiple required>
@@ -60,6 +67,18 @@
                 <div>
                     <label for="interval">Interval minutes</label>
                     <input id="interval" type="number" min="1" step="1" value="30" required>
+                </div>
+                <div id="forecastDaysGroup" hidden>
+                    <label for="forecastDays">Forecast days</label>
+                    <input id="forecastDays" type="number" min="1" step="1" value="365">
+                </div>
+                <div id="seasonalPeriodGroup" hidden>
+                    <label for="seasonalPeriod">Seasonal period (blank = weekly)</label>
+                    <input id="seasonalPeriod" type="number" min="2" step="1" placeholder="Auto">
+                </div>
+                <div id="trendLookbackGroup" hidden>
+                    <label for="trendLookback">Trend lookback days</label>
+                    <input id="trendLookback" type="number" min="7" step="1" value="90">
                 </div>
                 <div>
                     <label for="targetSeconds">Target answer seconds</label>
@@ -120,6 +139,7 @@
 <script>
     const form = document.getElementById("forecastForm");
     const filesInput = document.getElementById("files");
+    const forecastMethod = document.getElementById("forecastMethod");
     const fileList = document.getElementById("fileList");
     const statusElement = document.getElementById("status");
     const submitButton = document.getElementById("submitButton");
@@ -128,6 +148,14 @@
     const tableBody = document.getElementById("forecastTableBody");
     let charts = [];
     let forecastRows = [];
+
+    forecastMethod.addEventListener("change", () => {
+        const stl = forecastMethod.value === "stl";
+        document.getElementById("forecastDaysGroup").hidden = !stl;
+        document.getElementById("seasonalPeriodGroup").hidden = !stl;
+        document.getElementById("trendLookbackGroup").hidden = !stl;
+        submitButton.textContent = stl ? "Create STL forecast" : "Create average dataset";
+    });
 
     filesInput.addEventListener("change", () => {
         const names = Array.from(filesInput.files).map(file => file.name);
@@ -236,7 +264,7 @@
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = "predicted_365_day_erlang_forecast.csv";
+        link.download = `${forecastMethod.value}_erlang_forecast.csv`;
         link.click();
         URL.revokeObjectURL(url);
     });
@@ -244,9 +272,11 @@
     form.addEventListener("submit", async event => {
         event.preventDefault();
         const selectedFiles = Array.from(filesInput.files);
-        if (selectedFiles.length < 2) {
+        const method = forecastMethod.value;
+        const minimumFiles = method === "average" ? 2 : 1;
+        if (selectedFiles.length < minimumFiles) {
             statusElement.className = "status error";
-            statusElement.textContent = "Please select at least two yearly datasets.";
+            statusElement.textContent = method === "average" ? "Please select at least two yearly datasets." : "Please select at least one yearly dataset.";
             return;
         }
 
@@ -257,14 +287,21 @@
         formData.append("target_service_level", document.getElementById("serviceLevel").value);
         formData.append("shrinkage", document.getElementById("shrinkage").value);
         formData.append("include_forecast_rows", "true");
+        if (method === "stl") {
+            formData.append("forecast_days", document.getElementById("forecastDays").value);
+            const period = document.getElementById("seasonalPeriod").value;
+            if (period) formData.append("seasonal_period", period);
+            formData.append("trend_lookback_days", document.getElementById("trendLookback").value);
+        }
 
         submitButton.disabled = true;
         downloadButton.disabled = true;
         statusElement.className = "status";
-        statusElement.textContent = "Processing datasets and running Erlang C. This may take a few minutes...";
+        statusElement.textContent = method === "stl" ? "Running STL decomposition and Erlang C calculations..." : "Averaging datasets and running Erlang C calculations...";
 
         try {
-            const response = await fetch("/api/v1/cdr/multi-dataset-forecast", { method: "POST", body: formData });
+            const endpoint = method === "stl" ? "/api/v1/cdr/stl-forecast" : "/api/v1/cdr/multi-dataset-forecast";
+            const response = await fetch(endpoint, { method: "POST", body: formData });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || "Forecast failed.");
 
@@ -275,7 +312,9 @@
             resultsElement.hidden = false;
             downloadButton.disabled = !forecastRows.length;
             statusElement.className = "status success";
-            statusElement.textContent = `Completed: ${data.dataset_count} datasets averaged into ${data.days} days and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`;
+            statusElement.textContent = method === "stl"
+                ? `Completed STL forecast: ${data.days} days, period ${data.seasonal_period}, and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`
+                : `Completed: ${data.dataset_count} datasets averaged into ${data.days} days and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`;
         } catch (error) {
             statusElement.className = "status error";
             statusElement.textContent = error.message;
