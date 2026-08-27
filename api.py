@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pandas as pd
 import tempfile
 from pathlib import Path
 from typing import Annotated
@@ -22,6 +23,9 @@ from calculator import (
     preprocess_cdr,
     required_agents,
     service_level,
+    build_shift_requirements,
+    calculate_schedule_headcount,
+    build_monthly_agent_schedule,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -62,6 +66,11 @@ class RequiredAgentsRequest(BaseModel):
     shrinkage: float = Field(default=0, ge=0)
     max_agents: int = Field(default=1000, gt=0)
 
+class MonthlyScheduleRequest(BaseModel):
+    forecast: list[dict]
+    year: int
+    month: int = Field(ge=1, le=12)
+    agent_count: int | None = Field(default=None, gt=0)
 
 @app.get("/")
 def dashboard():
@@ -339,5 +348,32 @@ async def stl_forecast(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"STL forecast failed: {exc}") from exc
 
+@app.post("/api/v1/schedule/monthly")
+def monthly_schedule(request: MonthlyScheduleRequest) -> dict:
+    try:
+        forecast = pd.DataFrame(request.forecast)
+
+        if forecast.empty:
+            raise ValueError("Forecast data is empty.")
+
+        schedule, summary = build_monthly_agent_schedule(
+            forecast=forecast,
+            year=request.year,
+            month=request.month,
+            agent_count=request.agent_count,
+        )
+
+        return {
+            "summary": summary,
+            "schedule": schedule.to_dict(orient="records"),
+        }
+
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Monthly schedule generation failed: {exc}",
+        ) from exc
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

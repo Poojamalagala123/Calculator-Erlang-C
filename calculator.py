@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Sequence
@@ -940,3 +942,330 @@ def process_cdr_for_erlang(
     output = pd.DataFrame(rows)
     output.to_csv(output_path, index=False)
     return output
+
+SHIFT_DEFINITIONS = [
+    {
+        "code": "NIGHT",
+        "name": "Night",
+        "start_hour": 0,
+        "end_hour": 8,
+        "label": "00:00-08:00",
+    },
+    {
+        "code": "MORNING",
+        "name": "Morning",
+        "start_hour": 8,
+        "end_hour": 16,
+        "label": "08:00-16:00",
+    },
+    {
+        "code": "EVENING",
+        "name": "Evening",
+        "start_hour": 16,
+        "end_hour": 24,
+        "label": "16:00-00:00",
+    },
+]
+
+def build_shift_requirements(
+    forecast: pd.DataFrame,
+    year: int | None = None,
+    month: int | None = None,
+) -> pd.DataFrame:
+    """
+    Convert interval-level Erlang staffing requirements into
+    8-hour shift-level staffing requirements.
+
+    The required agents for a shift are based on the maximum
+    scheduled_agents requirement inside that shift.
+    """
+
+    if forecast.empty:
+        raise ValueError("Forecast is empty.")
+
+    if "interval_start" not in forecast.columns:
+        raise ValueError("Forecast must contain interval_start.")
+
+    if "scheduled_agents" not in forecast.columns:
+        raise ValueError("Forecast must contain scheduled_agents.")
+
+    frame = forecast.copy()
+    frame["interval_start"] = pd.to_datetime(frame["interval_start"])
+
+    if year is not None:
+        frame = frame.loc[frame["interval_start"].dt.year == int(year)]
+
+    if month is not None:
+        if not 1 <= int(month) <= 12:
+            raise ValueError("month must be between 1 and 12.")
+
+        frame = frame.loc[frame["interval_start"].dt.month == int(month)]
+
+    if frame.empty:
+        raise ValueError("No forecast rows found for the selected month.")
+
+    frame["date"] = frame["interval_start"].dt.date
+    frame["hour"] = frame["interval_start"].dt.hour
+
+    rows = []
+
+    for date_value, day_frame in frame.groupby("date"):
+        for shift in SHIFT_DEFINITIONS:
+            shift_frame = day_frame.loc[
+                (day_frame["hour"] >= shift["start_hour"])
+                & (day_frame["hour"] < shift["end_hour"])
+            ]
+
+            required_agents = (
+                int(shift_frame["scheduled_agents"].max())
+                if not shift_frame.empty
+                else 0
+            )
+
+            rows.append(
+                {
+                    "date": pd.Timestamp(date_value),
+                    "weekday": pd.Timestamp(date_value).day_name(),
+                    "shift_code": shift["code"],
+                    "shift_name": shift["name"],
+                    "shift_label": shift["label"],
+                    "start_hour": shift["start_hour"],
+                    "end_hour": shift["end_hour"],
+                    "required_agents": required_agents,
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+def calculate_schedule_headcount(
+    shift_requirements: pd.DataFrame,
+    working_days_per_week: int = 5,
+) -> int:
+    """
+    Estimate the minimum employee pool required.
+
+    Each employee can work only one 8-hour shift per day and
+    normally works 5 days per week.
+    """
+
+    if shift_requirements.empty:
+        return 0
+
+    if working_days_per_week <= 0 or working_days_per_week > 7:
+        raise ValueError("working_days_per_week must be between 1 and 7.")
+
+    frame = shift_requirements.copy()
+    frame["date"] = pd.to_datetime(frame["date"])
+
+    required_headcount = 0
+
+    frame["week_start"] = (
+        frame["date"]
+        - pd.to_timedelta(frame["date"].dt.weekday, unit="D")
+    )
+
+    for _, week in frame.groupby("week_start"):
+        total_weekly_shift_slots = int(week["required_agents"].sum())
+
+        weekly_capacity_headcount = math.ceil(
+            total_weekly_shift_slots / working_days_per_week
+        )
+
+        daily_requirements = (
+            week.groupby("date")["required_agents"]
+            .sum()
+        )
+
+        maximum_daily_agents = (
+            int(daily_requirements.max())
+            if not daily_requirements.empty
+            else 0
+        )
+
+        required_headcount = max(
+            required_headcount,
+            weekly_capacity_headcount,
+            maximum_daily_agents,
+        )
+
+    return required_headcount
+
+def build_monthly_agent_schedule(
+    forecast: pd.DataFrame,
+    year: int,
+    month: int,
+    agent_count: int | None = None,
+) -> tuple[pd.DataFrame, dict]:
+    """
+    Generate a monthly 24x7 roster.
+
+    Rules:
+    - Three equal 8-hour shifts.
+    - Maximum one shift per agent per day.
+    - Maximum five working days per Monday-Sunday week.
+    - Therefore agents receive at least two days off in a full week.
+    - Assignments are balanced by total shifts and shift type.
+    """
+
+    requirements = build_shift_requirements(
+        forecast=forecast,
+        year=year,
+        month=month,
+    )
+
+    minimum_agents = calculate_schedule_headcount(
+        requirements,
+        working_days_per_week=5,
+    )
+
+    if agent_count is None:
+        agent_count = minimum_agents
+
+    agent_count = int(agent_count)
+
+    if agent_count <= 0:
+        raise ValueError("agent_count must be greater than 0.")
+
+    if agent_count < minimum_agents:
+        raise ValueError(
+            f"At least {minimum_agents} agents are estimated to be required "
+            f"for {year}-{month:02d}; received {agent_count}."
+        )
+
+    agents = [
+        f"Agent {number:03d}"
+        for number in range(1, agent_count + 1)
+    ]
+
+    total_assignments = defaultdict(int)
+    shift_assignments = defaultdict(lambda: defaultdict(int))
+    weekly_workdays = defaultdict(lambda: defaultdict(int))
+    worked_dates = defaultdict(set)
+
+    schedule_rows = []
+    coverage_rows = []
+
+    requirements = requirements.sort_values(
+        ["date", "start_hour"]
+    ).reset_index(drop=True)
+
+    for requirement in requirements.itertuples(index=False):
+        date_value = pd.Timestamp(requirement.date)
+
+        week_start = (
+            date_value
+            - pd.Timedelta(days=date_value.weekday())
+        ).date()
+
+        required = int(requirement.required_agents)
+
+        candidates = [
+            agent
+            for agent in agents
+            if date_value.date() not in worked_dates[agent]
+            and weekly_workdays[agent][week_start] < 5
+        ]
+
+        candidates.sort(
+            key=lambda agent: (
+                weekly_workdays[agent][week_start],
+                total_assignments[agent],
+                shift_assignments[agent][requirement.shift_code],
+                agent,
+            )
+        )
+
+        selected_agents = candidates[:required]
+
+        for agent in selected_agents:
+            schedule_rows.append(
+                {
+                    "agent_id": agent,
+                    "date": date_value.strftime("%Y-%m-%d"),
+                    "weekday": date_value.day_name(),
+                    "shift_code": requirement.shift_code,
+                    "shift": requirement.shift_label,
+                    "status": "WORK",
+                }
+            )
+
+            total_assignments[agent] += 1
+            shift_assignments[agent][requirement.shift_code] += 1
+            weekly_workdays[agent][week_start] += 1
+            worked_dates[agent].add(date_value.date())
+
+        assigned = len(selected_agents)
+
+        coverage_rows.append(
+            {
+                "date": date_value.strftime("%Y-%m-%d"),
+                "weekday": date_value.day_name(),
+                "shift_code": requirement.shift_code,
+                "shift": requirement.shift_label,
+                "required_agents": required,
+                "assigned_agents": assigned,
+                "shortage": max(required - assigned, 0),
+                "status": "OK" if assigned >= required else "SHORT",
+            }
+        )
+
+    all_dates = pd.date_range(
+        start=f"{year}-{month:02d}-01",
+        end=(
+            pd.Timestamp(f"{year}-{month:02d}-01")
+            + pd.offsets.MonthEnd(0)
+        ),
+        freq="D",
+    )
+
+    existing_assignments = {
+        (row["agent_id"], row["date"])
+        for row in schedule_rows
+    }
+
+    for agent in agents:
+        for date_value in all_dates:
+            date_text = date_value.strftime("%Y-%m-%d")
+
+            if (agent, date_text) not in existing_assignments:
+                schedule_rows.append(
+                    {
+                        "agent_id": agent,
+                        "date": date_text,
+                        "weekday": date_value.day_name(),
+                        "shift_code": "OFF",
+                        "shift": "OFF",
+                        "status": "OFF",
+                    }
+                )
+
+    schedule = pd.DataFrame(schedule_rows).sort_values(
+        ["agent_id", "date"]
+    ).reset_index(drop=True)
+
+    coverage = pd.DataFrame(coverage_rows)
+
+    summary = {
+        "year": int(year),
+        "month": int(month),
+        "minimum_agents": int(minimum_agents),
+        "agent_count": int(agent_count),
+        "shift_hours": 8,
+        "working_days_per_week": 5,
+        "days_off_per_week": 2,
+        "total_required_shift_assignments": int(
+            requirements["required_agents"].sum()
+        ),
+        "total_assigned_shift_assignments": int(
+            (schedule["status"] == "WORK").sum()
+        ),
+        "coverage_shortage": int(
+            coverage["shortage"].sum()
+        ),
+        "coverage_ok": bool(
+            coverage["shortage"].sum() == 0
+        ),
+        "coverage": coverage.to_dict(orient="records"),
+    }
+
+    return schedule, summary

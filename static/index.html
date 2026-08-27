@@ -1,0 +1,2387 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Erlang C Forecast & Agent Scheduling Dashboard</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #202124;
+        }
+
+        .container {
+            width: min(1500px, 96%);
+            margin: 28px auto;
+        }
+
+        h1 {
+            margin-bottom: 6px;
+        }
+
+        h2 {
+            margin-top: 0;
+        }
+
+        .subtitle {
+            margin-top: 0;
+            color: #666;
+        }
+
+        .panel,
+        .card,
+        .chart-box,
+        .table-box {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
+        }
+
+        .panel {
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            align-items: end;
+        }
+
+        .file-group {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background: #fff;
+        }
+
+        input[type=file] {
+            padding: 12px;
+        }
+
+        button {
+            padding: 11px 16px;
+            border: 0;
+            border-radius: 6px;
+            background: #1769aa;
+            color: #fff;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        button.secondary {
+            background: #4b5563;
+        }
+
+        button:disabled {
+            background: #888;
+            cursor: wait;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .status {
+            min-height: 24px;
+            margin-top: 14px;
+            font-weight: 700;
+        }
+
+        .success {
+            color: #137333;
+        }
+
+        .error {
+            color: #b00020;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            padding: 16px;
+        }
+
+        .card-title {
+            color: #666;
+            font-size: 13px;
+        }
+
+        .card-value {
+            margin-top: 7px;
+            font-size: 25px;
+            font-weight: 700;
+            word-break: break-word;
+        }
+
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+            gap: 18px;
+        }
+
+        .chart-box {
+            padding: 18px;
+            min-height: 360px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 285px;
+        }
+
+        .table-box {
+            margin-top: 20px;
+            padding: 18px;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 1200px;
+        }
+
+        th,
+        td {
+            padding: 9px;
+            border-bottom: 1px solid #e5e7eb;
+            text-align: left;
+            white-space: nowrap;
+        }
+
+        th {
+            background: #f3f4f6;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        .note {
+            color: #666;
+            font-size: 13px;
+            margin-top: 8px;
+        }
+
+        .file-list {
+            margin: 8px 0 0;
+            color: #555;
+            font-size: 14px;
+        }
+
+        .section-title {
+            margin-top: 35px;
+        }
+
+        .schedule-info {
+            padding: 12px 14px;
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 7px;
+            margin-bottom: 16px;
+            line-height: 1.6;
+        }
+
+        .schedule-table-wrapper {
+            overflow-x: auto;
+            max-height: 650px;
+        }
+
+        .schedule-table {
+            min-width: max-content;
+            font-size: 12px;
+        }
+
+        .schedule-table th:first-child,
+        .schedule-table td:first-child {
+            position: sticky;
+            left: 0;
+            background: #fff;
+            z-index: 2;
+            font-weight: 700;
+        }
+
+        .schedule-table th:first-child {
+            background: #f3f4f6;
+            z-index: 3;
+        }
+
+        .shift-off {
+            color: #777;
+            font-weight: 700;
+        }
+
+        @media (max-width: 600px) {
+            .chart-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .chart-box {
+                min-height: 330px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>Erlang C Forecast & Agent Scheduling Dashboard</h1>
+
+    <p class="subtitle">
+        Forecast contact-centre demand, calculate Erlang C staffing requirements,
+        and generate 24×7 monthly agent schedules.
+    </p>
+
+
+    <!-- ========================================================= -->
+    <!-- FORECAST CONFIGURATION -->
+    <!-- ========================================================= -->
+
+    <div class="panel">
+
+        <h2>Forecast Configuration</h2>
+
+        <form id="forecastForm">
+
+            <div class="form-grid">
+
+                <div>
+                    <label for="forecastMethod">Forecast method</label>
+
+                    <select id="forecastMethod">
+                        <option value="average">
+                            Average matching intervals
+                        </option>
+
+                        <option value="stl">
+                            STL decomposition
+                        </option>
+                    </select>
+                </div>
+
+
+                <div class="file-group">
+
+                    <label for="files">
+                        Yearly CDR datasets
+                    </label>
+
+                    <input
+                        id="files"
+                        type="file"
+                        accept=".csv,.txt,text/csv"
+                        multiple
+                        required
+                    >
+
+                    <div
+                        id="fileRequirementNote"
+                        class="note"
+                    >
+                        Select at least two files for Average forecasting.
+                        Each file must contain one complete calendar year.
+                    </div>
+
+                    <div
+                        id="fileList"
+                        class="file-list"
+                    ></div>
+
+                </div>
+
+
+                <div>
+
+                    <label for="interval">
+                        Interval minutes
+                    </label>
+
+                    <input
+                        id="interval"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value="30"
+                        required
+                    >
+
+                </div>
+
+
+                <div id="forecastDaysGroup" hidden>
+
+                    <label for="forecastDays">
+                        Forecast days
+                    </label>
+
+                    <input
+                        id="forecastDays"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value="365"
+                    >
+
+                </div>
+
+
+                <div id="seasonalPeriodGroup" hidden>
+
+                    <label for="seasonalPeriod">
+                        Seasonal period
+                    </label>
+
+                    <input
+                        id="seasonalPeriod"
+                        type="number"
+                        min="2"
+                        step="1"
+                        placeholder="Blank = weekly"
+                    >
+
+                </div>
+
+
+                <div id="trendLookbackGroup" hidden>
+
+                    <label for="trendLookback">
+                        Trend lookback days
+                    </label>
+
+                    <input
+                        id="trendLookback"
+                        type="number"
+                        min="7"
+                        step="1"
+                        value="90"
+                    >
+
+                </div>
+
+
+                <div>
+
+                    <label for="targetSeconds">
+                        Target answer seconds
+                    </label>
+
+                    <input
+                        id="targetSeconds"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value="20"
+                        required
+                    >
+
+                </div>
+
+
+                <div>
+
+                    <label for="serviceLevel">
+                        Target service level %
+                    </label>
+
+                    <input
+                        id="serviceLevel"
+                        type="number"
+                        min="0.01"
+                        max="99.99"
+                        step="0.01"
+                        value="80"
+                        required
+                    >
+
+                </div>
+
+
+                <div>
+
+                    <label for="shrinkage">
+                        Shrinkage %
+                    </label>
+
+                    <input
+                        id="shrinkage"
+                        type="number"
+                        min="0"
+                        max="99.99"
+                        step="0.01"
+                        value="30"
+                        required
+                    >
+
+                </div>
+
+
+                <div class="actions">
+
+                    <button
+                        id="submitButton"
+                        type="submit"
+                    >
+                        Create average dataset
+                    </button>
+
+                    <button
+                        id="downloadButton"
+                        class="secondary"
+                        type="button"
+                        disabled
+                    >
+                        Download Forecast CSV
+                    </button>
+
+                </div>
+
+            </div>
+
+        </form>
+
+        <div
+            id="status"
+            class="status"
+        ></div>
+
+    </div>
+
+
+    <!-- ========================================================= -->
+    <!-- FORECAST RESULTS -->
+    <!-- ========================================================= -->
+
+    <section
+        id="results"
+        hidden
+    >
+
+        <h2 class="section-title">
+            Forecast Results
+        </h2>
+
+
+        <div class="cards">
+
+            <div class="card">
+                <div class="card-title">Datasets used</div>
+                <div id="datasetCount" class="card-value">0</div>
+            </div>
+
+
+            <div class="card">
+                <div class="card-title">Historical years</div>
+                <div id="historicalYears" class="card-value">-</div>
+            </div>
+
+
+            <div class="card">
+                <div class="card-title">Output days</div>
+                <div id="outputDays" class="card-value">365</div>
+            </div>
+
+
+            <div class="card">
+                <div class="card-title">Predicted calls</div>
+                <div id="totalCalls" class="card-value">0</div>
+            </div>
+
+
+            <div class="card">
+                <div class="card-title">Average AHT</div>
+                <div id="averageAht" class="card-value">0s</div>
+            </div>
+
+
+            <div class="card">
+                <div class="card-title">Max scheduled agents</div>
+                <div id="maxAgents" class="card-value">0</div>
+            </div>
+
+
+            <div class="card">
+                <div class="card-title">Average service level</div>
+                <div id="averageService" class="card-value">0%</div>
+            </div>
+
+
+            <div class="card">
+                <div class="card-title">Average occupancy</div>
+                <div id="averageOccupancy" class="card-value">0%</div>
+            </div>
+
+        </div>
+
+
+        <!-- ===================================================== -->
+        <!-- CHARTS -->
+        <!-- ===================================================== -->
+
+        <div class="chart-grid">
+
+            <div class="chart-box">
+                <h2>Daily predicted calls</h2>
+
+                <div class="chart-container">
+                    <canvas id="dailyCallsChart"></canvas>
+                </div>
+            </div>
+
+
+            <div class="chart-box">
+                <h2>Monthly predicted calls</h2>
+
+                <div class="chart-container">
+                    <canvas id="monthlyCallsChart"></canvas>
+                </div>
+            </div>
+
+
+            <div class="chart-box">
+                <h2>Daily maximum scheduled agents</h2>
+
+                <div class="chart-container">
+                    <canvas id="dailyAgentsChart"></canvas>
+                </div>
+            </div>
+
+
+            <div class="chart-box">
+                <h2>Service level and occupancy</h2>
+
+                <div class="chart-container">
+                    <canvas id="performanceChart"></canvas>
+                </div>
+            </div>
+
+
+            <div class="chart-box">
+                <h2>Average calls by weekday</h2>
+
+                <div class="chart-container">
+                    <canvas id="weekdayChart"></canvas>
+                </div>
+            </div>
+
+
+            <div class="chart-box">
+                <h2>Average calls by time</h2>
+
+                <div class="chart-container">
+                    <canvas id="timeChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+
+        <!-- ===================================================== -->
+        <!-- FORECAST TABLE -->
+        <!-- ===================================================== -->
+
+        <div class="table-box">
+
+            <h2>Predicted Erlang C Details</h2>
+
+            <p class="note">
+                The table displays the first 50 rows for browser performance.
+                Download Forecast CSV contains all forecast intervals.
+            </p>
+
+            <table>
+
+                <thead>
+
+                <tr>
+                    <th>Interval</th>
+                    <th>Calls</th>
+                    <th>AHT</th>
+                    <th>Traffic</th>
+                    <th>Raw agents</th>
+                    <th>Scheduled agents</th>
+                    <th>Service level %</th>
+                    <th>Waiting %</th>
+                    <th>Occupancy %</th>
+                    <th>ASA</th>
+                </tr>
+
+                </thead>
+
+                <tbody id="forecastTableBody"></tbody>
+
+            </table>
+
+        </div>
+
+    </section>
+
+
+    <!-- ========================================================= -->
+    <!-- MONTHLY AGENT SCHEDULING -->
+    <!-- ========================================================= -->
+
+    <div
+        class="panel"
+        id="schedulePanel"
+        hidden
+    >
+
+        <h2>Monthly Agent Schedule</h2>
+
+        <p class="note">
+            Create a 24×7 monthly roster using three equal 8-hour shifts.
+            Each agent can work a maximum of five days per week,
+            providing two weekly days off.
+        </p>
+
+
+        <div class="form-grid">
+
+
+            <div>
+
+                <label for="scheduleMonth">
+                    Schedule month
+                </label>
+
+                <select id="scheduleMonth">
+
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+
+                </select>
+
+            </div>
+
+
+            <div>
+
+                <label for="scheduleAgentCount">
+                    Available agent count
+                </label>
+
+                <input
+                    id="scheduleAgentCount"
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="Auto"
+                >
+
+            </div>
+
+
+            <div class="actions">
+
+                <button
+                    id="generateScheduleButton"
+                    type="button"
+                >
+                    Generate Monthly Schedule
+                </button>
+
+
+                <button
+                    id="downloadScheduleButton"
+                    class="secondary"
+                    type="button"
+                    disabled
+                >
+                    Download Schedule CSV
+                </button>
+
+            </div>
+
+        </div>
+
+
+        <div
+            id="scheduleStatus"
+            class="status"
+        ></div>
+
+    </div>
+
+
+    <!-- ========================================================= -->
+    <!-- AGENT SCHEDULE RESULTS -->
+    <!-- ========================================================= -->
+
+    <section
+        id="scheduleResults"
+        hidden
+    >
+
+        <h2 class="section-title">
+            Agent Schedule Results
+        </h2>
+
+
+        <div class="schedule-info">
+
+            <strong>Shift structure:</strong>
+
+            Night 00:00–08:00 &nbsp; | &nbsp;
+            Morning 08:00–16:00 &nbsp; | &nbsp;
+            Evening 16:00–00:00
+
+        </div>
+
+
+        <div class="cards">
+
+
+            <div class="card">
+
+                <div class="card-title">
+                    Minimum agents
+                </div>
+
+                <div
+                    id="minimumAgents"
+                    class="card-value"
+                >
+                    0
+                </div>
+
+            </div>
+
+
+            <div class="card">
+
+                <div class="card-title">
+                    Agents scheduled
+                </div>
+
+                <div
+                    id="scheduledAgentCount"
+                    class="card-value"
+                >
+                    0
+                </div>
+
+            </div>
+
+
+            <div class="card">
+
+                <div class="card-title">
+                    Working days / week
+                </div>
+
+                <div
+                    id="workingDaysPerWeek"
+                    class="card-value"
+                >
+                    5
+                </div>
+
+            </div>
+
+
+            <div class="card">
+
+                <div class="card-title">
+                    Days off / week
+                </div>
+
+                <div
+                    id="daysOffPerWeek"
+                    class="card-value"
+                >
+                    2
+                </div>
+
+            </div>
+
+
+            <div class="card">
+
+                <div class="card-title">
+                    Shift hours
+                </div>
+
+                <div
+                    id="shiftHours"
+                    class="card-value"
+                >
+                    8
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- ===================================================== -->
+        <!-- MONTHLY AGENT ROSTER -->
+        <!-- ===================================================== -->
+
+        <div class="table-box">
+
+            <h2>Agent Monthly Roster</h2>
+
+            <p class="note">
+                Each row represents one agent.
+                Each column represents one calendar day.
+            </p>
+
+            <div
+                id="agentScheduleTable"
+                class="schedule-table-wrapper"
+            ></div>
+
+        </div>
+
+    </section>
+
+</div>
+
+
+<script>
+
+    // =========================================================
+    // FORECAST VARIABLES
+    // =========================================================
+
+    const form =
+        document.getElementById("forecastForm");
+
+    const filesInput =
+        document.getElementById("files");
+
+    const forecastMethod =
+        document.getElementById("forecastMethod");
+
+    const fileList =
+        document.getElementById("fileList");
+
+    const fileRequirementNote =
+        document.getElementById("fileRequirementNote");
+
+    const statusElement =
+        document.getElementById("status");
+
+    const submitButton =
+        document.getElementById("submitButton");
+
+    const downloadButton =
+        document.getElementById("downloadButton");
+
+    const resultsElement =
+        document.getElementById("results");
+
+    const tableBody =
+        document.getElementById("forecastTableBody");
+
+
+    let charts = [];
+
+    let forecastRows = [];
+
+
+    // =========================================================
+    // SCHEDULING VARIABLES
+    // =========================================================
+
+    let scheduleRows = [];
+
+    let scheduleSummary = null;
+
+
+    const schedulePanel =
+        document.getElementById("schedulePanel");
+
+    const scheduleResults =
+        document.getElementById("scheduleResults");
+
+    const scheduleStatus =
+        document.getElementById("scheduleStatus");
+
+    const generateScheduleButton =
+        document.getElementById("generateScheduleButton");
+
+    const downloadScheduleButton =
+        document.getElementById("downloadScheduleButton");
+
+
+    // =========================================================
+    // FORECAST METHOD
+    // =========================================================
+
+    forecastMethod.addEventListener(
+        "change",
+        () => {
+
+            const stl =
+                forecastMethod.value === "stl";
+
+
+            document.getElementById(
+                "forecastDaysGroup"
+            ).hidden = !stl;
+
+
+            document.getElementById(
+                "seasonalPeriodGroup"
+            ).hidden = !stl;
+
+
+            document.getElementById(
+                "trendLookbackGroup"
+            ).hidden = !stl;
+
+
+            submitButton.textContent =
+                stl
+                    ? "Create STL forecast"
+                    : "Create average dataset";
+
+
+            fileRequirementNote.textContent =
+                stl
+                    ? "Select at least one yearly dataset for STL forecasting. Each file must contain one complete calendar year."
+                    : "Select at least two files for Average forecasting. Each file must contain one complete calendar year.";
+
+        }
+    );
+
+
+    // =========================================================
+    // FILE LIST
+    // =========================================================
+
+    filesInput.addEventListener(
+        "change",
+        () => {
+
+            const names =
+                Array
+                    .from(filesInput.files)
+                    .map(file => file.name);
+
+
+            fileList.textContent =
+                names.length
+                    ? `${names.length} selected: ${names.join(", ")}`
+                    : "";
+
+        }
+    );
+
+
+    // =========================================================
+    // CHART HELPERS
+    // =========================================================
+
+    function destroyCharts() {
+
+        charts.forEach(
+            chart => chart.destroy()
+        );
+
+        charts = [];
+
+    }
+
+
+    function makeChart(
+        canvasId,
+        type,
+        labels,
+        datasets,
+        yTitle
+    ) {
+
+        const chart =
+            new Chart(
+                document.getElementById(canvasId),
+                {
+
+                    type,
+
+                    data: {
+                        labels,
+                        datasets
+                    },
+
+                    options: {
+
+                        responsive: true,
+
+                        maintainAspectRatio: false,
+
+                        interaction: {
+                            mode: "index",
+                            intersect: false
+                        },
+
+                        plugins: {
+                            legend: {
+                                position: "top"
+                            }
+                        },
+
+                        scales: {
+
+                            x: {
+                                ticks: {
+                                    maxTicksLimit: 18,
+                                    maxRotation: 45,
+                                    minRotation: 0
+                                }
+                            },
+
+                            y: {
+
+                                beginAtZero: true,
+
+                                title: {
+                                    display: true,
+                                    text: yTitle
+                                }
+
+                            }
+
+                        }
+
+                    }
+
+                }
+            );
+
+
+        charts.push(chart);
+
+    }
+
+
+    // =========================================================
+    // FORECAST SUMMARY
+    // =========================================================
+
+    function renderSummary(data) {
+
+        document.getElementById(
+            "datasetCount"
+        ).textContent =
+            data.dataset_count;
+
+
+        document.getElementById(
+            "historicalYears"
+        ).textContent =
+            (data.historical_years || []).join(", ");
+
+
+        document.getElementById(
+            "outputDays"
+        ).textContent =
+            data.days;
+
+
+        document.getElementById(
+            "totalCalls"
+        ).textContent =
+            Number(
+                data.total_predicted_calls
+            ).toLocaleString();
+
+
+        document.getElementById(
+            "averageAht"
+        ).textContent =
+            `${Number(
+                data.average_aht_seconds
+            ).toFixed(2)}s`;
+
+
+        document.getElementById(
+            "maxAgents"
+        ).textContent =
+            data.maximum_scheduled_agents;
+
+
+        document.getElementById(
+            "averageService"
+        ).textContent =
+            `${Number(
+                data.average_service_level_percent
+            ).toFixed(2)}%`;
+
+
+        document.getElementById(
+            "averageOccupancy"
+        ).textContent =
+            `${Number(
+                data.average_occupancy_percent
+            ).toFixed(2)}%`;
+
+    }
+
+
+    // =========================================================
+    // FORECAST CHARTS
+    // =========================================================
+
+    function renderCharts(chartData) {
+
+        destroyCharts();
+
+
+        const daily =
+            chartData.daily || [];
+
+
+        makeChart(
+            "dailyCallsChart",
+            "line",
+            daily.map(x => x.date),
+            [
+                {
+                    label: "Calls",
+                    data: daily.map(
+                        x => x.call_volume
+                    ),
+                    borderWidth: 2,
+                    pointRadius: 0
+                }
+            ],
+            "Calls"
+        );
+
+
+        makeChart(
+            "dailyAgentsChart",
+            "line",
+            daily.map(x => x.date),
+            [
+                {
+                    label: "Scheduled agents",
+                    data: daily.map(
+                        x => x.max_scheduled_agents
+                    ),
+                    borderWidth: 2,
+                    pointRadius: 0
+                }
+            ],
+            "Agents"
+        );
+
+
+        makeChart(
+            "performanceChart",
+            "line",
+            daily.map(x => x.date),
+            [
+                {
+                    label: "Service level %",
+                    data: daily.map(
+                        x => x.average_service_level_percent
+                    ),
+                    borderWidth: 2,
+                    pointRadius: 0
+                },
+
+                {
+                    label: "Occupancy %",
+                    data: daily.map(
+                        x => x.average_occupancy_percent
+                    ),
+                    borderWidth: 2,
+                    pointRadius: 0
+                }
+            ],
+            "Percent"
+        );
+
+
+        const monthly =
+            chartData.monthly || [];
+
+
+        makeChart(
+            "monthlyCallsChart",
+            "bar",
+            monthly.map(
+                x => x.month_label
+            ),
+            [
+                {
+                    label: "Calls",
+                    data: monthly.map(
+                        x => x.call_volume
+                    )
+                }
+            ],
+            "Calls"
+        );
+
+
+        const weekday =
+            chartData.weekday || [];
+
+
+        makeChart(
+            "weekdayChart",
+            "bar",
+            weekday.map(
+                x => x.weekday_name
+            ),
+            [
+                {
+                    label: "Average calls per interval",
+                    data: weekday.map(
+                        x => x.average_calls
+                    )
+                }
+            ],
+            "Calls"
+        );
+
+
+        const time =
+            chartData.time_of_day || [];
+
+
+        makeChart(
+            "timeChart",
+            "line",
+            time.map(
+                x => x.time_label
+            ),
+            [
+                {
+                    label: "Average calls",
+                    data: time.map(
+                        x => x.average_calls
+                    ),
+                    borderWidth: 2,
+                    pointRadius: 1
+                }
+            ],
+            "Calls"
+        );
+
+    }
+
+
+    // =========================================================
+    // FORECAST TABLE - FIRST 50 ROWS ONLY
+    // =========================================================
+
+    function renderTable(rows) {
+
+        tableBody.innerHTML = "";
+
+
+        rows
+            .slice(0, 50)
+            .forEach(
+                row => {
+
+                    const tr =
+                        document.createElement("tr");
+
+
+                    const values = [
+
+                        row.interval_start,
+
+                        row.call_volume,
+
+                        Number(
+                            row.aht_seconds
+                        ).toFixed(2),
+
+                        Number(
+                            row.traffic_erlangs
+                        ).toFixed(4),
+
+                        row.raw_agents,
+
+                        row.scheduled_agents,
+
+                        Number(
+                            row.service_level_percent
+                        ).toFixed(2),
+
+                        Number(
+                            row.probability_waiting_percent
+                        ).toFixed(2),
+
+                        Number(
+                            row.occupancy_percent
+                        ).toFixed(2),
+
+                        Number(
+                            row.asa_seconds
+                        ).toFixed(2)
+
+                    ];
+
+
+                    values.forEach(
+                        value => {
+
+                            const td =
+                                document.createElement("td");
+
+                            td.textContent =
+                                value;
+
+                            tr.appendChild(td);
+
+                        }
+                    );
+
+
+                    tableBody.appendChild(tr);
+
+                }
+            );
+
+    }
+
+
+    // =========================================================
+    // CSV ESCAPE
+    // =========================================================
+
+    function csvEscape(value) {
+
+        const text =
+            value == null
+                ? ""
+                : String(value);
+
+
+        return /[",\n]/.test(text)
+            ? `"${text.replaceAll('"', '""')}"`
+            : text;
+
+    }
+
+
+    // =========================================================
+    // FORECAST CSV DOWNLOAD
+    // =========================================================
+
+    downloadButton.addEventListener(
+        "click",
+        () => {
+
+            if (!forecastRows.length) {
+                return;
+            }
+
+
+            const headers =
+                Object.keys(
+                    forecastRows[0]
+                );
+
+
+            const csv = [
+
+                headers.join(","),
+
+                ...forecastRows.map(
+                    row =>
+                        headers
+                            .map(
+                                header =>
+                                    csvEscape(
+                                        row[header]
+                                    )
+                            )
+                            .join(",")
+                )
+
+            ].join("\n");
+
+
+            const blob =
+                new Blob(
+                    [csv],
+                    {
+                        type:
+                            "text/csv;charset=utf-8"
+                    }
+                );
+
+
+            const url =
+                URL.createObjectURL(blob);
+
+
+            const link =
+                document.createElement("a");
+
+
+            link.href =
+                url;
+
+
+            link.download =
+                `${forecastMethod.value}_erlang_forecast.csv`;
+
+
+            link.click();
+
+
+            URL.revokeObjectURL(url);
+
+        }
+    );
+
+
+    // =========================================================
+    // RUN FORECAST
+    // =========================================================
+
+    form.addEventListener(
+        "submit",
+        async event => {
+
+            event.preventDefault();
+
+
+            const selectedFiles =
+                Array.from(
+                    filesInput.files
+                );
+
+
+            const method =
+                forecastMethod.value;
+
+
+            const minimumFiles =
+                method === "average"
+                    ? 2
+                    : 1;
+
+
+            if (
+                selectedFiles.length
+                < minimumFiles
+            ) {
+
+                statusElement.className =
+                    "status error";
+
+
+                statusElement.textContent =
+                    method === "average"
+                        ? "Please select at least two yearly datasets."
+                        : "Please select at least one yearly dataset.";
+
+
+                return;
+
+            }
+
+
+            const formData =
+                new FormData();
+
+
+            selectedFiles.forEach(
+                file =>
+                    formData.append(
+                        "files",
+                        file
+                    )
+            );
+
+
+            formData.append(
+                "interval_minutes",
+                document.getElementById(
+                    "interval"
+                ).value
+            );
+
+
+            formData.append(
+                "target_seconds",
+                document.getElementById(
+                    "targetSeconds"
+                ).value
+            );
+
+
+            formData.append(
+                "target_service_level",
+                document.getElementById(
+                    "serviceLevel"
+                ).value
+            );
+
+
+            formData.append(
+                "shrinkage",
+                document.getElementById(
+                    "shrinkage"
+                ).value
+            );
+
+
+            formData.append(
+                "include_forecast_rows",
+                "true"
+            );
+
+
+            if (method === "stl") {
+
+                formData.append(
+                    "forecast_days",
+                    document.getElementById(
+                        "forecastDays"
+                    ).value
+                );
+
+
+                const period =
+                    document.getElementById(
+                        "seasonalPeriod"
+                    ).value;
+
+
+                if (period) {
+
+                    formData.append(
+                        "seasonal_period",
+                        period
+                    );
+
+                }
+
+
+                formData.append(
+                    "trend_lookback_days",
+                    document.getElementById(
+                        "trendLookback"
+                    ).value
+                );
+
+            }
+
+
+            submitButton.disabled =
+                true;
+
+
+            downloadButton.disabled =
+                true;
+
+
+            schedulePanel.hidden =
+                true;
+
+
+            scheduleResults.hidden =
+                true;
+
+
+            scheduleRows = [];
+
+            scheduleSummary = null;
+
+
+            downloadScheduleButton.disabled =
+                true;
+
+
+            statusElement.className =
+                "status";
+
+
+            statusElement.textContent =
+                method === "stl"
+                    ? "Running STL decomposition and Erlang C calculations..."
+                    : "Averaging datasets and running Erlang C calculations...";
+
+
+            try {
+
+                const endpoint =
+                    method === "stl"
+                        ? "/api/v1/cdr/stl-forecast"
+                        : "/api/v1/cdr/multi-dataset-forecast";
+
+
+                const response =
+                    await fetch(
+                        endpoint,
+                        {
+                            method: "POST",
+                            body: formData
+                        }
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        data.detail
+                        || "Forecast failed."
+                    );
+
+                }
+
+
+                forecastRows =
+                    data.forecast || [];
+
+
+                renderSummary(data);
+
+                renderCharts(
+                    data.charts
+                );
+
+                renderTable(
+                    forecastRows
+                );
+
+
+                resultsElement.hidden =
+                    false;
+
+
+                downloadButton.disabled =
+                    !forecastRows.length;
+
+
+                // ---------------------------------------------
+                // ENABLE MONTHLY AGENT SCHEDULING
+                // ---------------------------------------------
+
+                if (
+                    forecastRows.length
+                    && data.output_year
+                ) {
+
+                    schedulePanel.hidden =
+                        false;
+
+
+                    schedulePanel.dataset.outputYear =
+                        data.output_year;
+
+
+                    const firstForecastDate =
+                        new Date(
+                            forecastRows[0]
+                                .interval_start
+                        );
+
+
+                    if (
+                        !Number.isNaN(
+                            firstForecastDate.getTime()
+                        )
+                    ) {
+
+                        document.getElementById(
+                            "scheduleMonth"
+                        ).value =
+                            firstForecastDate.getMonth()
+                            + 1;
+
+                    }
+
+                }
+
+
+                statusElement.className =
+                    "status success";
+
+
+                statusElement.textContent =
+                    method === "stl"
+
+                        ? `Completed STL forecast: ${data.days} days, period ${data.seasonal_period}, and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`
+
+                        : `Completed: ${data.dataset_count} datasets averaged into ${data.days} days and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`;
+
+            }
+
+            catch (error) {
+
+                statusElement.className =
+                    "status error";
+
+
+                statusElement.textContent =
+                    error.message;
+
+            }
+
+            finally {
+
+                submitButton.disabled =
+                    false;
+
+            }
+
+        }
+    );
+
+
+    // =========================================================
+    // SCHEDULE SUMMARY
+    // =========================================================
+
+    function renderScheduleSummary(summary) {
+
+        document.getElementById(
+            "minimumAgents"
+        ).textContent =
+            summary.minimum_agents;
+
+
+        document.getElementById(
+            "scheduledAgentCount"
+        ).textContent =
+            summary.agent_count;
+
+
+        document.getElementById(
+            "workingDaysPerWeek"
+        ).textContent =
+            summary.working_days_per_week;
+
+
+        document.getElementById(
+            "daysOffPerWeek"
+        ).textContent =
+            summary.days_off_per_week;
+
+
+        document.getElementById(
+            "shiftHours"
+        ).textContent =
+            summary.shift_hours;
+
+    }
+
+
+    // =========================================================
+    // MONTHLY AGENT ROSTER
+    // =========================================================
+
+    function renderAgentSchedule(rows) {
+
+        const container =
+            document.getElementById(
+                "agentScheduleTable"
+            );
+
+
+        container.innerHTML =
+            "";
+
+
+        if (!rows.length) {
+
+            container.textContent =
+                "No schedule available.";
+
+            return;
+
+        }
+
+
+        const agents =
+            [
+                ...new Set(
+                    rows.map(
+                        row => row.agent_id
+                    )
+                )
+            ];
+
+
+        const dates =
+            [
+                ...new Set(
+                    rows.map(
+                        row => row.date
+                    )
+                )
+            ].sort();
+
+
+        const scheduleMap =
+            new Map();
+
+
+        rows.forEach(
+            row => {
+
+                scheduleMap.set(
+                    `${row.agent_id}|${row.date}`,
+                    row.shift
+                );
+
+            }
+        );
+
+
+        const table =
+            document.createElement(
+                "table"
+            );
+
+
+        table.className =
+            "schedule-table";
+
+
+        // ---------------------------------------------
+        // TABLE HEADER
+        // ---------------------------------------------
+
+        const thead =
+            document.createElement(
+                "thead"
+            );
+
+
+        const headerRow =
+            document.createElement(
+                "tr"
+            );
+
+
+        const agentHeader =
+            document.createElement(
+                "th"
+            );
+
+
+        agentHeader.textContent =
+            "Agent";
+
+
+        headerRow.appendChild(
+            agentHeader
+        );
+
+
+        dates.forEach(
+            date => {
+
+                const th =
+                    document.createElement(
+                        "th"
+                    );
+
+
+                const parsed =
+                    new Date(
+                        `${date}T00:00:00`
+                    );
+
+
+                const dayNumber =
+                    String(
+                        parsed.getDate()
+                    ).padStart(
+                        2,
+                        "0"
+                    );
+
+
+                const weekday =
+                    parsed.toLocaleDateString(
+                        undefined,
+                        {
+                            weekday: "short"
+                        }
+                    );
+
+
+                th.textContent =
+                    `${dayNumber} ${weekday}`;
+
+
+                headerRow.appendChild(
+                    th
+                );
+
+            }
+        );
+
+
+        thead.appendChild(
+            headerRow
+        );
+
+
+        table.appendChild(
+            thead
+        );
+
+
+        // ---------------------------------------------
+        // TABLE BODY
+        // ---------------------------------------------
+
+        const tbody =
+            document.createElement(
+                "tbody"
+            );
+
+
+        agents.forEach(
+            agent => {
+
+                const tr =
+                    document.createElement(
+                        "tr"
+                    );
+
+
+                const nameCell =
+                    document.createElement(
+                        "td"
+                    );
+
+
+                nameCell.textContent =
+                    agent;
+
+
+                tr.appendChild(
+                    nameCell
+                );
+
+
+                dates.forEach(
+                    date => {
+
+                        const td =
+                            document.createElement(
+                                "td"
+                            );
+
+
+                        const shift =
+                            scheduleMap.get(
+                                `${agent}|${date}`
+                            )
+                            || "OFF";
+
+
+                        td.textContent =
+                            shift;
+
+
+                        if (
+                            shift === "OFF"
+                        ) {
+
+                            td.className =
+                                "shift-off";
+
+                        }
+
+
+                        tr.appendChild(
+                            td
+                        );
+
+                    }
+                );
+
+
+                tbody.appendChild(
+                    tr
+                );
+
+            }
+        );
+
+
+        table.appendChild(
+            tbody
+        );
+
+
+        container.appendChild(
+            table
+        );
+
+    }
+
+
+    // =========================================================
+    // GENERATE MONTHLY AGENT SCHEDULE
+    // =========================================================
+
+    generateScheduleButton.addEventListener(
+        "click",
+        async () => {
+
+            if (!forecastRows.length) {
+
+                scheduleStatus.className =
+                    "status error";
+
+
+                scheduleStatus.textContent =
+                    "Create a forecast first.";
+
+
+                return;
+
+            }
+
+
+            const year =
+                Number(
+                    schedulePanel.dataset.outputYear
+                );
+
+
+            const month =
+                Number(
+                    document.getElementById(
+                        "scheduleMonth"
+                    ).value
+                );
+
+
+            const agentCountValue =
+                document
+                    .getElementById(
+                        "scheduleAgentCount"
+                    )
+                    .value
+                    .trim();
+
+
+            if (!year) {
+
+                scheduleStatus.className =
+                    "status error";
+
+
+                scheduleStatus.textContent =
+                    "Forecast output year is unavailable.";
+
+
+                return;
+
+            }
+
+
+            const payload = {
+
+                forecast:
+                    forecastRows,
+
+                year:
+                    year,
+
+                month:
+                    month
+
+            };
+
+
+            if (agentCountValue) {
+
+                payload.agent_count =
+                    Number(
+                        agentCountValue
+                    );
+
+            }
+
+
+            generateScheduleButton.disabled =
+                true;
+
+
+            downloadScheduleButton.disabled =
+                true;
+
+
+            scheduleResults.hidden =
+                true;
+
+
+            scheduleStatus.className =
+                "status";
+
+
+            scheduleStatus.textContent =
+                "Generating monthly agent schedule...";
+
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/v1/schedule/monthly",
+                        {
+
+                            method:
+                                "POST",
+
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
+
+                            body:
+                                JSON.stringify(
+                                    payload
+                                )
+
+                        }
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        data.detail
+                        || "Schedule generation failed."
+                    );
+
+                }
+
+
+                scheduleRows =
+                    data.schedule
+                    || [];
+
+
+                scheduleSummary =
+                    data.summary;
+
+
+                renderScheduleSummary(
+                    scheduleSummary
+                );
+
+
+                renderAgentSchedule(
+                    scheduleRows
+                );
+
+
+                scheduleResults.hidden =
+                    false;
+
+
+                downloadScheduleButton.disabled =
+                    !scheduleRows.length;
+
+
+                scheduleStatus.className =
+                    "status success";
+
+
+                scheduleStatus.textContent =
+                    `Schedule completed for ${year}-${String(month).padStart(2, "0")} with ${scheduleSummary.agent_count} agents.`;
+
+
+                scheduleResults.scrollIntoView(
+                    {
+                        behavior:
+                            "smooth",
+
+                        block:
+                            "start"
+                    }
+                );
+
+            }
+
+            catch (error) {
+
+                scheduleStatus.className =
+                    "status error";
+
+
+                scheduleStatus.textContent =
+                    error.message;
+
+            }
+
+            finally {
+
+                generateScheduleButton.disabled =
+                    false;
+
+            }
+
+        }
+    );
+
+
+    // =========================================================
+    // DOWNLOAD MONTHLY SCHEDULE CSV
+    // =========================================================
+
+    downloadScheduleButton.addEventListener(
+        "click",
+        () => {
+
+            if (!scheduleRows.length) {
+                return;
+            }
+
+
+            const headers = [
+
+                "agent_id",
+
+                "date",
+
+                "weekday",
+
+                "shift_code",
+
+                "shift",
+
+                "status"
+
+            ];
+
+
+            const csv = [
+
+                headers.join(","),
+
+                ...scheduleRows.map(
+                    row =>
+                        headers
+                            .map(
+                                header =>
+                                    csvEscape(
+                                        row[header]
+                                    )
+                            )
+                            .join(",")
+                )
+
+            ].join("\n");
+
+
+            const blob =
+                new Blob(
+                    [csv],
+                    {
+                        type:
+                            "text/csv;charset=utf-8"
+                    }
+                );
+
+
+            const url =
+                URL.createObjectURL(
+                    blob
+                );
+
+
+            const link =
+                document.createElement(
+                    "a"
+                );
+
+
+            const month =
+                Number(
+                    document.getElementById(
+                        "scheduleMonth"
+                    ).value
+                );
+
+
+            const year =
+                schedulePanel.dataset.outputYear;
+
+
+            link.href =
+                url;
+
+
+            link.download =
+                `agent_schedule_${year}_${String(month).padStart(2, "0")}.csv`;
+
+
+            link.click();
+
+
+            URL.revokeObjectURL(
+                url
+            );
+
+        }
+    );
+
+</script>
+
+</body>
+
+</html>
