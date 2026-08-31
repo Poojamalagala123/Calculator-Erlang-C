@@ -360,17 +360,14 @@
 
                 <div id="seasonalPeriodGroup" hidden>
 
-                    <label for="seasonalPeriod">
-                        Seasonal period
+                    <label for="seasonalPeriodPreset">
+                        Seasonal pattern
                     </label>
 
-                    <input
-                        id="seasonalPeriod"
-                        type="number"
-                        min="2"
-                        step="1"
-                        placeholder="Blank = weekly"
-                    >
+                    <select id="seasonalPeriodPreset">
+                        <option value="weekly" selected>Weekly</option>
+                        <option value="monthly">Monthly</option>
+                    </select>
 
                 </div>
 
@@ -1587,20 +1584,41 @@
                 );
 
 
-                const period =
-                    document.getElementById(
-                        "seasonalPeriod"
-                    ).value;
-
-
-                if (period) {
-
-                    formData.append(
-                        "seasonal_period",
-                        period
+                const intervalMinutes =
+                    Number(
+                        document.getElementById(
+                            "interval"
+                        ).value
                     );
 
+                const intervalsPerDay =
+                    1440 / intervalMinutes;
+
+                const seasonalPreset =
+                    document.getElementById(
+                        "seasonalPeriodPreset"
+                    ).value;
+
+                let seasonalPeriod;
+
+                if (seasonalPreset === "weekly") {
+
+                    seasonalPeriod =
+                        intervalsPerDay * 7;
+
                 }
+
+                else if (seasonalPreset === "monthly") {
+
+                    seasonalPeriod =
+                        intervalsPerDay * 30;
+
+                }
+
+                formData.append(
+                    "seasonal_period",
+                    Math.round(seasonalPeriod)
+                );
 
 
                 formData.append(
