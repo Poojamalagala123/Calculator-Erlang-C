@@ -242,6 +242,16 @@
             font-weight: 700;
         }
 
+        .shift-leave {
+            font-weight: 700;
+        }
+
+        .shift-cover,
+        .shift-transfer,
+        .shift-swap {
+            font-weight: 700;
+        }
+
         @media (max-width: 600px) {
             .chart-grid {
                 grid-template-columns: 1fr;
@@ -272,31 +282,16 @@
 
     <div class="panel">
 
-        <h2>Forecast Configuration</h2>
+        <h2>Forecast Configuration (STL Decomposition)</h2>
 
         <form id="forecastForm">
 
             <div class="form-grid">
 
-                <div>
-                    <label for="forecastMethod">Forecast method</label>
-
-                    <select id="forecastMethod">
-                        <option value="average">
-                            Average matching intervals
-                        </option>
-
-                        <option value="stl">
-                            STL decomposition
-                        </option>
-                    </select>
-                </div>
-
-
                 <div class="file-group">
 
                     <label for="files">
-                        Yearly CDR datasets
+                        Upload Historical CDR Data
                     </label>
 
                     <input
@@ -311,7 +306,7 @@
                         id="fileRequirementNote"
                         class="note"
                     >
-                        Select at least two files for Average forecasting.
+                        Upload one or more CDR files containing historical call records.
                         Each file must contain one complete calendar year.
                     </div>
 
@@ -341,7 +336,7 @@
                 </div>
 
 
-                <div id="forecastDaysGroup" hidden>
+                <div id="forecastDaysGroup">
 
                     <label for="forecastDays">
                         Forecast days
@@ -358,7 +353,7 @@
                 </div>
 
 
-                <div id="seasonalPeriodGroup" hidden>
+                <div id="seasonalPeriodGroup">
 
                     <label for="seasonalPeriodPreset">
                         Seasonal pattern
@@ -372,7 +367,7 @@
                 </div>
 
 
-                <div id="trendLookbackGroup" hidden>
+                <div id="trendLookbackGroup">
 
                     <label for="trendLookback">
                         Trend lookback days
@@ -451,7 +446,7 @@
                         id="submitButton"
                         type="submit"
                     >
-                        Create average dataset
+                        Create STL forecast
                     </button>
 
                     <button
@@ -744,6 +739,80 @@
 
 
     <!-- ========================================================= -->
+    <!-- AGENT LEAVE MANAGEMENT -->
+    <!-- ========================================================= -->
+
+    <div
+        class="panel"
+        id="leaveManagementPanel"
+        hidden
+    >
+
+        <h2>Agent Leave Management</h2>
+
+        <p class="note">
+            Select an agent and leave date. The system first tries an available OFF agent,
+            then a safe transfer from an overstaffed shift while preserving required staffing coverage.
+        </p>
+
+        <div class="form-grid">
+
+            <div>
+                <label for="leaveAgent">Agent</label>
+
+                <select id="leaveAgent">
+                    <option value="">Select agent</option>
+                </select>
+            </div>
+
+            <div>
+                <label for="leaveDate">Leave date</label>
+
+                <input
+                    id="leaveDate"
+                    type="date"
+                >
+            </div>
+
+            <div class="actions">
+
+                <button
+                    id="applyLeaveButton"
+                    type="button"
+                >
+                    Apply Leave
+                </button>
+
+            </div>
+
+        </div>
+
+        <div
+            id="leaveStatus"
+            class="status"
+        ></div>
+
+    </div>
+
+
+    <!-- ========================================================= -->
+    <!-- SHIFT SWAP MANAGEMENT -->
+    <!-- ========================================================= -->
+
+    <div class="panel" id="shiftSwapPanel" hidden>
+        <h2>Shift Swap Management</h2>
+        <p class="note">Select a date and two working agents. The system swaps their shifts only when both agents are on different shifts and the minimum rest-period rule remains safe.</p>
+        <div class="form-grid">
+            <div><label for="swapDate">Swap date</label><input id="swapDate" type="date"></div>
+            <div><label for="swapAgent1">Agent 1</label><select id="swapAgent1"><option value="">Select agent</option></select></div>
+            <div><label for="swapAgent2">Agent 2</label><select id="swapAgent2"><option value="">Select agent</option></select></div>
+            <div class="actions"><button id="applySwapButton" type="button">Apply Shift Swap</button></div>
+        </div>
+        <div id="swapStatus" class="status"></div>
+    </div>
+
+
+    <!-- ========================================================= -->
     <!-- AGENT SCHEDULE RESULTS -->
     <!-- ========================================================= -->
 
@@ -890,9 +959,6 @@
     const filesInput =
         document.getElementById("files");
 
-    const forecastMethod =
-        document.getElementById("forecastMethod");
-
     const fileList =
         document.getElementById("fileList");
 
@@ -946,45 +1012,30 @@
 
 
     // =========================================================
-    // FORECAST METHOD
+    // LEAVE MANAGEMENT VARIABLES
     // =========================================================
 
-    forecastMethod.addEventListener(
-        "change",
-        () => {
+    const leaveManagementPanel =
+        document.getElementById("leaveManagementPanel");
 
-            const stl =
-                forecastMethod.value === "stl";
+    const leaveAgent =
+        document.getElementById("leaveAgent");
 
+    const leaveDate =
+        document.getElementById("leaveDate");
 
-            document.getElementById(
-                "forecastDaysGroup"
-            ).hidden = !stl;
+    const applyLeaveButton =
+        document.getElementById("applyLeaveButton");
 
+    const leaveStatus =
+        document.getElementById("leaveStatus");
 
-            document.getElementById(
-                "seasonalPeriodGroup"
-            ).hidden = !stl;
-
-
-            document.getElementById(
-                "trendLookbackGroup"
-            ).hidden = !stl;
-
-
-            submitButton.textContent =
-                stl
-                    ? "Create STL forecast"
-                    : "Create average dataset";
-
-
-            fileRequirementNote.textContent =
-                stl
-                    ? "Select at least one yearly dataset for STL forecasting. Each file must contain one complete calendar year."
-                    : "Select at least two files for Average forecasting. Each file must contain one complete calendar year.";
-
-        }
-    );
+    const shiftSwapPanel = document.getElementById("shiftSwapPanel");
+    const swapDate = document.getElementById("swapDate");
+    const swapAgent1 = document.getElementById("swapAgent1");
+    const swapAgent2 = document.getElementById("swapAgent2");
+    const applySwapButton = document.getElementById("applySwapButton");
+    const swapStatus = document.getElementById("swapStatus");
 
 
     // =========================================================
@@ -1464,7 +1515,7 @@
 
 
             link.download =
-                `${forecastMethod.value}_erlang_forecast.csv`;
+                `stl_erlang_forecast.csv`;
 
 
             link.click();
@@ -1493,29 +1544,14 @@
                 );
 
 
-            const method =
-                forecastMethod.value;
-
-
-            const minimumFiles =
-                method === "average"
-                    ? 2
-                    : 1;
-
-
-            if (
-                selectedFiles.length
-                < minimumFiles
-            ) {
+            if (!selectedFiles.length) {
 
                 statusElement.className =
                     "status error";
 
 
                 statusElement.textContent =
-                    method === "average"
-                        ? "Please select at least two yearly datasets."
-                        : "Please select at least one yearly dataset.";
+                    "Please select at least one yearly dataset.";
 
 
                 return;
@@ -1574,61 +1610,57 @@
             );
 
 
-            if (method === "stl") {
+            formData.append(
+                "forecast_days",
+                document.getElementById(
+                    "forecastDays"
+                ).value
+            );
 
-                formData.append(
-                    "forecast_days",
+
+            const intervalMinutes =
+                Number(
                     document.getElementById(
-                        "forecastDays"
+                        "interval"
                     ).value
                 );
 
+            const intervalsPerDay =
+                1440 / intervalMinutes;
 
-                const intervalMinutes =
-                    Number(
-                        document.getElementById(
-                            "interval"
-                        ).value
-                    );
+            const seasonalPreset =
+                document.getElementById(
+                    "seasonalPeriodPreset"
+                ).value;
 
-                const intervalsPerDay =
-                    1440 / intervalMinutes;
+            let seasonalPeriod;
 
-                const seasonalPreset =
-                    document.getElementById(
-                        "seasonalPeriodPreset"
-                    ).value;
+            if (seasonalPreset === "weekly") {
 
-                let seasonalPeriod;
-
-                if (seasonalPreset === "weekly") {
-
-                    seasonalPeriod =
-                        intervalsPerDay * 7;
-
-                }
-
-                else if (seasonalPreset === "monthly") {
-
-                    seasonalPeriod =
-                        intervalsPerDay * 30;
-
-                }
-
-                formData.append(
-                    "seasonal_period",
-                    Math.round(seasonalPeriod)
-                );
-
-
-                formData.append(
-                    "trend_lookback_days",
-                    document.getElementById(
-                        "trendLookback"
-                    ).value
-                );
+                seasonalPeriod =
+                    intervalsPerDay * 7;
 
             }
+
+            else {
+
+                seasonalPeriod =
+                    intervalsPerDay * 30;
+
+            }
+
+            formData.append(
+                "seasonal_period",
+                Math.round(seasonalPeriod)
+            );
+
+
+            formData.append(
+                "trend_lookback_days",
+                document.getElementById(
+                    "trendLookback"
+                ).value
+            );
 
 
             submitButton.disabled =
@@ -1647,6 +1679,15 @@
                 true;
 
 
+            leaveManagementPanel.hidden =
+                true;
+
+            leaveStatus.textContent =
+                "";
+
+            shiftSwapPanel.hidden = true;
+            swapStatus.textContent = "";
+
             scheduleRows = [];
 
             scheduleSummary = null;
@@ -1661,17 +1702,13 @@
 
 
             statusElement.textContent =
-                method === "stl"
-                    ? "Running STL decomposition and Erlang C calculations..."
-                    : "Averaging datasets and running Erlang C calculations...";
+                "Running STL decomposition and Erlang C calculations...";
 
 
             try {
 
                 const endpoint =
-                    method === "stl"
-                        ? "/api/v1/cdr/stl-forecast"
-                        : "/api/v1/cdr/multi-dataset-forecast";
+                    "/api/v1/cdr/stl-forecast";
 
 
                 const response =
@@ -1767,11 +1804,7 @@
 
 
                 statusElement.textContent =
-                    method === "stl"
-
-                        ? `Completed STL forecast: ${data.days} days, period ${data.seasonal_period}, and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`
-
-                        : `Completed: ${data.dataset_count} datasets averaged into ${data.days} days and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`;
+                    `Completed STL forecast: ${data.days} days, period ${data.seasonal_period}, and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`;
 
             }
 
@@ -1890,7 +1923,7 @@
 
                 scheduleMap.set(
                     `${row.agent_id}|${row.date}`,
-                    row.shift
+                    row
                 );
 
             }
@@ -2036,10 +2069,19 @@
                             );
 
 
-                        const shift =
+                        const scheduleRow =
                             scheduleMap.get(
                                 `${agent}|${date}`
                             )
+                            || {
+                                shift: "OFF",
+                                status: "OFF",
+                                assignment_type: null
+                            };
+
+
+                        const shift =
+                            scheduleRow.shift
                             || "OFF";
 
 
@@ -2048,6 +2090,52 @@
 
 
                         if (
+                            scheduleRow.status === "LEAVE"
+                            || shift === "LEAVE"
+                        ) {
+
+                            td.className =
+                                "shift-leave";
+
+                            td.title =
+                                scheduleRow.original_shift
+                                    ? `Leave - original shift: ${scheduleRow.original_shift}`
+                                    : "Leave";
+
+                        }
+
+                        else if (
+                            scheduleRow.assignment_type === "LEAVE_COVER"
+                        ) {
+
+                            td.className =
+                                "shift-cover";
+
+                            td.title =
+                                `Leave cover${scheduleRow.previous_shift ? ` - previous: ${scheduleRow.previous_shift}` : ""}`;
+
+                        }
+
+                        else if (
+                            scheduleRow.assignment_type === "SHIFT_TRANSFER"
+                        ) {
+
+                            td.className =
+                                "shift-transfer";
+
+                            td.title =
+                                `Shift transfer${scheduleRow.previous_shift ? ` - previous: ${scheduleRow.previous_shift}` : ""}`;
+
+                        }
+
+                        else if (
+                            scheduleRow.assignment_type === "SHIFT_SWAP"
+                        ) {
+                            td.className = "shift-swap";
+                            td.title = `Shift swap${scheduleRow.previous_shift ? ` - previous: ${scheduleRow.previous_shift}` : ""}`;
+                        }
+
+                        else if (
                             shift === "OFF"
                         ) {
 
@@ -2082,6 +2170,116 @@
             table
         );
 
+    }
+
+
+    // =========================================================
+    // LEAVE MANAGEMENT HELPERS
+    // =========================================================
+
+    function populateLeaveAgents() {
+
+        leaveAgent.innerHTML =
+            '<option value="">Select agent</option>';
+
+        const agents = [
+            ...new Set(
+                scheduleRows.map(
+                    row => row.agent_id
+                )
+            )
+        ].sort();
+
+        agents.forEach(
+            agent => {
+
+                const option =
+                    document.createElement(
+                        "option"
+                    );
+
+                option.value =
+                    agent;
+
+                option.textContent =
+                    agent;
+
+                leaveAgent.appendChild(
+                    option
+                );
+            }
+        );
+
+        leaveManagementPanel.hidden =
+            agents.length === 0;
+    }
+
+
+    function updateLeaveDateRange(
+        year,
+        month
+    ) {
+
+        const monthStart =
+            `${year}-${String(month).padStart(2, "0")}-01`;
+
+        const monthEndDate =
+            new Date(
+                year,
+                month,
+                0
+            );
+
+        const monthEnd =
+            `${year}-${String(month).padStart(2, "0")}-${String(
+                monthEndDate.getDate()
+            ).padStart(2, "0")}`;
+
+        leaveDate.min =
+            monthStart;
+
+        leaveDate.max =
+            monthEnd;
+
+        if (
+            !leaveDate.value
+            || leaveDate.value < monthStart
+            || leaveDate.value > monthEnd
+        ) {
+
+            leaveDate.value =
+                monthStart;
+        }
+    }
+
+
+    // =========================================================
+    // SHIFT SWAP HELPERS
+    // =========================================================
+
+    function populateSwapAgents() {
+        const agents = [...new Set(scheduleRows.map(row => row.agent_id))].sort();
+        [swapAgent1, swapAgent2].forEach(select => {
+            const current = select.value;
+            select.innerHTML = '<option value="">Select agent</option>';
+            agents.forEach(agent => {
+                const option = document.createElement("option");
+                option.value = agent;
+                option.textContent = agent;
+                select.appendChild(option);
+            });
+            if (agents.includes(current)) select.value = current;
+        });
+        shiftSwapPanel.hidden = agents.length < 2;
+    }
+
+    function updateSwapDateRange(year, month) {
+        const start = `${year}-${String(month).padStart(2, "0")}-01`;
+        const endDate = new Date(year, month, 0);
+        const end = `${year}-${String(month).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
+        swapDate.min = start;
+        swapDate.max = end;
+        if (!swapDate.value || swapDate.value < start || swapDate.value > end) swapDate.value = start;
     }
 
 
@@ -2233,6 +2431,17 @@
                     || [];
 
 
+                populateLeaveAgents();
+
+                updateLeaveDateRange(
+                    year,
+                    month
+                );
+
+                populateSwapAgents();
+                updateSwapDateRange(year, month);
+
+
                 scheduleSummary =
                     data.summary;
 
@@ -2298,6 +2507,230 @@
 
 
     // =========================================================
+    // APPLY AGENT LEAVE
+    // =========================================================
+
+    applyLeaveButton.addEventListener(
+        "click",
+        async () => {
+
+            const agentId =
+                leaveAgent.value;
+
+            const selectedDate =
+                leaveDate.value;
+
+            if (!agentId) {
+
+                leaveStatus.className =
+                    "status error";
+
+                leaveStatus.textContent =
+                    "Please select an agent.";
+
+                return;
+            }
+
+            if (!selectedDate) {
+
+                leaveStatus.className =
+                    "status error";
+
+                leaveStatus.textContent =
+                    "Please select a leave date.";
+
+                return;
+            }
+
+            if (!forecastRows.length) {
+
+                leaveStatus.className =
+                    "status error";
+
+                leaveStatus.textContent =
+                    "Forecast data is unavailable.";
+
+                return;
+            }
+
+            if (!scheduleRows.length) {
+
+                leaveStatus.className =
+                    "status error";
+
+                leaveStatus.textContent =
+                    "Generate a monthly schedule first.";
+
+                return;
+            }
+
+            applyLeaveButton.disabled =
+                true;
+
+            leaveStatus.className =
+                "status";
+
+            leaveStatus.textContent =
+                "Processing leave request...";
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/v1/schedule/leave",
+                        {
+                            method: "POST",
+
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
+
+                            body:
+                                JSON.stringify(
+                                    {
+                                        forecast:
+                                            forecastRows,
+
+                                        schedule:
+                                            scheduleRows,
+
+                                        agent_id:
+                                            agentId,
+
+                                        leave_date:
+                                            selectedDate
+                                    }
+                                )
+                        }
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        data.detail
+                        || "Leave processing failed."
+                    );
+                }
+
+
+                scheduleRows =
+                    data.schedule
+                    || [];
+
+
+                renderAgentSchedule(
+                    scheduleRows
+                );
+
+
+                populateLeaveAgents();
+                populateSwapAgents();
+
+
+                const result =
+                    data.result
+                    || {};
+
+
+                if (result.resolved) {
+
+                    leaveStatus.className =
+                        "status success";
+
+                    leaveStatus.textContent =
+                        result.message
+                        || "Leave resolved successfully.";
+
+                }
+
+                else {
+
+                    leaveStatus.className =
+                        "status error";
+
+                    leaveStatus.textContent =
+                        result.message
+                        || "Leave could not be covered safely.";
+
+                }
+
+
+                downloadScheduleButton.disabled =
+                    !scheduleRows.length;
+
+            }
+
+            catch (error) {
+
+                leaveStatus.className =
+                    "status error";
+
+                leaveStatus.textContent =
+                    error.message;
+
+            }
+
+            finally {
+
+                applyLeaveButton.disabled =
+                    false;
+
+            }
+
+        }
+    );
+
+
+    // =========================================================
+    // APPLY SHIFT SWAP
+    // =========================================================
+
+    applySwapButton.addEventListener("click", async () => {
+        const agent1 = swapAgent1.value;
+        const agent2 = swapAgent2.value;
+        const selectedDate = swapDate.value;
+
+        if (!selectedDate) { swapStatus.className = "status error"; swapStatus.textContent = "Please select a swap date."; return; }
+        if (!agent1 || !agent2) { swapStatus.className = "status error"; swapStatus.textContent = "Please select both agents."; return; }
+        if (agent1 === agent2) { swapStatus.className = "status error"; swapStatus.textContent = "Please select two different agents."; return; }
+        if (!scheduleRows.length) { swapStatus.className = "status error"; swapStatus.textContent = "Generate a monthly schedule first."; return; }
+
+        applySwapButton.disabled = true;
+        swapStatus.className = "status";
+        swapStatus.textContent = "Processing shift swap...";
+
+        try {
+            const response = await fetch("/api/v1/schedule/swap", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({schedule: scheduleRows, agent_1: agent1, agent_2: agent2, swap_date: selectedDate})
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || "Shift swap failed.");
+            scheduleRows = data.schedule || [];
+            renderAgentSchedule(scheduleRows);
+            populateLeaveAgents();
+            populateSwapAgents();
+            const result = data.result || {};
+            swapStatus.className = "status success";
+            swapStatus.textContent = result.message || "Shift swap completed successfully.";
+            downloadScheduleButton.disabled = !scheduleRows.length;
+        } catch (error) {
+            swapStatus.className = "status error";
+            swapStatus.textContent = error.message;
+        } finally {
+            applySwapButton.disabled = false;
+        }
+    });
+
+
+    // =========================================================
     // DOWNLOAD MONTHLY SCHEDULE CSV
     // =========================================================
 
@@ -2322,7 +2755,17 @@
 
                 "shift",
 
-                "status"
+                "status",
+
+                "original_shift_code",
+
+                "original_shift",
+
+                "previous_shift_code",
+
+                "previous_shift",
+
+                "assignment_type"
 
             ];
 

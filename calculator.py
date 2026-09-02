@@ -42,7 +42,6 @@ FORECAST_COLUMNS = [
     "asa_seconds",
 ]
 
-
 def hms_to_seconds(value) -> Optional[int]:
     if pd.isna(value):
         return None
@@ -57,21 +56,11 @@ def hms_to_seconds(value) -> Optional[int]:
         return None
     return hours * 3600 + minutes * 60 + seconds
 
-
 def clean_percent(value) -> float:
     number = float(str(value).strip().replace("%", ""))
     if number > 1:
         number /= 100
     return number
-
-
-def calculate_aht(total_handle_time_seconds: float, total_answered_calls: int) -> float:
-    if total_handle_time_seconds < 0:
-        raise ValueError("Total handle time cannot be negative.")
-    if total_answered_calls <= 0:
-        raise ValueError("Answered calls must be greater than 0.")
-    return total_handle_time_seconds / total_answered_calls
-
 
 def calculate_traffic(call_volume: float, aht_seconds: float, interval_seconds: float) -> float:
     if call_volume < 0:
@@ -82,35 +71,6 @@ def calculate_traffic(call_volume: float, aht_seconds: float, interval_seconds: 
         raise ValueError("Interval seconds must be greater than 0.")
     return (call_volume * aht_seconds) / interval_seconds
 
-
-def _erlang_model_from_traffic(traffic: float, aht_seconds: float, target_seconds: float) -> ErlangC:
-    if traffic < 0:
-        raise ValueError("Traffic cannot be negative.")
-    if aht_seconds <= 0:
-        raise ValueError("AHT seconds must be greater than 0.")
-    if target_seconds < 0:
-        raise ValueError("Target seconds cannot be negative.")
-
-    interval_minutes = 60
-    aht_minutes = aht_seconds / 60
-    transactions = traffic * interval_minutes / aht_minutes
-    return ErlangC(
-        transactions=transactions,
-        aht=aht_minutes,
-        asa=target_seconds / 60,
-        interval=interval_minutes,
-    )
-
-
-def erlang_c_probability(traffic: float, agents: int) -> float:
-    agents = int(agents)
-    if agents <= 0:
-        raise ValueError("Agents must be greater than 0.")
-    if agents <= traffic:
-        return 1.0
-    return _erlang_model_from_traffic(traffic, 60, 0).waiting_probability(agents)
-
-
 def average_speed_of_answer(erlang_c: float, aht_seconds: float, agents: int, traffic: float) -> float:
     agents = int(agents)
     if agents <= 0:
@@ -118,31 +78,6 @@ def average_speed_of_answer(erlang_c: float, aht_seconds: float, agents: int, tr
     if agents <= traffic:
         return float("inf")
     return erlang_c * aht_seconds / (agents - traffic)
-
-
-def service_level(
-    erlang_c: float,
-    agents: int,
-    traffic: float,
-    target_seconds: float,
-    aht_seconds: float,
-) -> float:
-    agents = int(agents)
-    if agents <= 0:
-        raise ValueError("Agents must be greater than 0.")
-    if agents <= traffic:
-        return 0.0
-    return _erlang_model_from_traffic(traffic, aht_seconds, target_seconds).service_level(agents)
-
-
-def occupancy(traffic: float, agents: int) -> float:
-    agents = int(agents)
-    if agents <= 0:
-        raise ValueError("Agents must be greater than 0.")
-    if agents <= traffic:
-        return traffic / agents
-    return _erlang_model_from_traffic(traffic, 60, 0).achieved_occupancy(agents)
-
 
 def required_agents(
     call_volume: float,
@@ -213,7 +148,6 @@ def required_agents(
         "asa_seconds": float(asa),
     }
 
-
 def read_cdr_csv(file_path: str | Path) -> pd.DataFrame:
     attempts = [
         {"encoding": "utf-16", "sep": "\t"},
@@ -237,7 +171,6 @@ def read_cdr_csv(file_path: str | Path) -> pd.DataFrame:
         except Exception as exc:
             last_error = exc
     raise ValueError(f"Could not read CDR CSV. Last error: {last_error}")
-
 
 def preprocess_cdr(
     file_path: str | Path,
@@ -279,15 +212,13 @@ def preprocess_cdr(
     ]
     return clean.sort_values("call_datetime").reset_index(drop=True)
 
-
 def infer_single_year(clean_df: pd.DataFrame, filename: str = "dataset") -> int:
     years = sorted(clean_df["call_datetime"].dt.year.dropna().astype(int).unique().tolist())
     if len(years) != 1:
         raise ValueError(f"{filename} must contain exactly one calendar year; found {years or 'none'}.")
     return int(years[0])
 
-
-def build_interval_forecast(
+def build_cdr_intervals(
     clean_df: pd.DataFrame,
     interval_minutes: int = 60,
     include_empty_intervals: bool = False,
@@ -339,102 +270,8 @@ def build_interval_forecast(
     interval_df["interval_seconds"] = interval_minutes * 60
     return interval_df
 
-
-def build_daily_average_pattern(
-    file_paths: Sequence[str | Path],
-    filenames: Sequence[str] | None = None,
-    interval_minutes: int = 30,
-) -> tuple[pd.DataFrame, dict]:
-    """Average matching calendar day and time intervals across any number of yearly files."""
-    if len(file_paths) < 2:
-        raise ValueError("Upload at least two full-year CDR datasets.")
-    if filenames is not None and len(filenames) != len(file_paths):
-        raise ValueError("filenames and file_paths must have the same length.")
-
-    all_intervals: list[pd.DataFrame] = []
-    dataset_summary: list[dict] = []
-    seen_years: set[int] = set()
-    global_handle_time = 0.0
-    global_answered_calls = 0
-
-    for index, path in enumerate(file_paths):
-        filename = filenames[index] if filenames else Path(path).name
-        raw_count = len(read_cdr_csv(path))
-        clean = preprocess_cdr(path)
-        if clean.empty:
-            raise ValueError(f"No valid Answered records found in {filename}.")
-        year = infer_single_year(clean, filename)
-        if year in seen_years:
-            raise ValueError(f"Duplicate year {year}. Upload only one dataset for each year.")
-        seen_years.add(year)
-
-        intervals = build_interval_forecast(
-            clean,
-            interval_minutes=interval_minutes,
-            include_empty_intervals=True,
-            year=year,
-        )
-        # The final result is always a 365-day model, so February 29 is excluded.
-        intervals = intervals.loc[
-            ~((intervals["call_datetime"].dt.month == 2) & (intervals["call_datetime"].dt.day == 29))
-        ].copy()
-        intervals["source_year"] = year
-        intervals["month"] = intervals["call_datetime"].dt.month
-        intervals["day"] = intervals["call_datetime"].dt.day
-        intervals["hour"] = intervals["call_datetime"].dt.hour
-        intervals["minute"] = intervals["call_datetime"].dt.minute
-        all_intervals.append(intervals)
-
-        answered_calls = int(len(clean))
-        total_handle = float(clean["duration_seconds"].sum())
-        global_answered_calls += answered_calls
-        global_handle_time += total_handle
-        dataset_summary.append(
-            {
-                "filename": filename,
-                "year": year,
-                "raw_rows": int(raw_count),
-                "valid_answered_calls": answered_calls,
-                "removed_rows": int(raw_count - answered_calls),
-                "average_aht_seconds": round(total_handle / answered_calls, 2),
-                "first_call": clean["call_datetime"].min().isoformat(),
-                "last_call": clean["call_datetime"].max().isoformat(),
-            }
-        )
-
-    historical = pd.concat(all_intervals, ignore_index=True)
-    keys = ["month", "day", "hour", "minute"]
-    pattern = (
-        historical.groupby(keys, as_index=False)
-        .agg(
-            predicted_call_volume=("call_volume", "mean"),
-            total_handle_time_seconds=("total_handle_time_seconds", "sum"),
-            total_answered_calls=("call_volume", "sum"),
-            dataset_observations=("source_year", "nunique"),
-        )
-    )
-
-    global_aht = global_handle_time / global_answered_calls
-    pattern["predicted_aht_seconds"] = (
-        pattern["total_handle_time_seconds"]
-        .div(pattern["total_answered_calls"].replace(0, pd.NA))
-        .fillna(global_aht)
-        .astype(float)
-    )
-    pattern["predicted_call_volume"] = (
-        pattern["predicted_call_volume"].round().clip(lower=0).astype(int)
-    )
-
-    return pattern, {
-        "dataset_count": len(file_paths),
-        "historical_years": sorted(seen_years),
-        "datasets": sorted(dataset_summary, key=lambda item: item["year"]),
-        "total_valid_answered_calls": int(global_answered_calls),
-        "global_weighted_aht_seconds": round(global_aht, 2),
-    }
-
-
 @lru_cache(maxsize=100_000)
+
 def _cached_required_agents(
     call_volume: int,
     aht_seconds_rounded: float,
@@ -463,150 +300,6 @@ def _cached_required_agents(
         result["asa_seconds"],
     )
 
-
-def _automatic_output_year(historical_years: Sequence[int]) -> int:
-    return max(map(int, historical_years)) + 1
-
-
-def build_multi_dataset_forecast(
-    file_paths: Sequence[str | Path],
-    filenames: Sequence[str] | None = None,
-    interval_minutes: int = 30,
-    target_seconds: float = 20,
-    target_service_level: float = 80,
-    shrinkage: float = 30,
-    max_agents: int = 1000,
-) -> tuple[pd.DataFrame, dict]:
-    """Create one automatic 365-day average dataset and run Erlang C on every interval."""
-    pattern, source_summary = build_daily_average_pattern(
-        file_paths=file_paths,
-        filenames=filenames,
-        interval_minutes=interval_minutes,
-    )
-    output_year = _automatic_output_year(source_summary["historical_years"])
-    interval_minutes = int(interval_minutes)
-    rule = f"{interval_minutes}min"
-
-    dates = pd.date_range(
-        start=f"{output_year}-01-01 00:00:00",
-        end=f"{output_year + 1}-01-01 00:00:00",
-        freq=rule,
-        inclusive="left",
-    )
-    dates = dates[~((dates.month == 2) & (dates.day == 29))]
-    forecast = pd.DataFrame({"interval_start": dates})
-    forecast["month"] = forecast["interval_start"].dt.month
-    forecast["day"] = forecast["interval_start"].dt.day
-    forecast["hour"] = forecast["interval_start"].dt.hour
-    forecast["minute"] = forecast["interval_start"].dt.minute
-
-    forecast = forecast.merge(
-        pattern[[
-            "month",
-            "day",
-            "hour",
-            "minute",
-            "predicted_call_volume",
-            "predicted_aht_seconds",
-        ]],
-        on=["month", "day", "hour", "minute"],
-        how="left",
-        validate="many_to_one",
-    )
-    if forecast[["predicted_call_volume", "predicted_aht_seconds"]].isna().any().any():
-        raise RuntimeError("The uploaded datasets did not cover all 365 calendar days.")
-
-    interval_seconds = interval_minutes * 60
-    metrics_rows = []
-    for row in forecast.itertuples(index=False):
-        metrics_rows.append(
-            _cached_required_agents(
-                int(row.predicted_call_volume),
-                round(float(row.predicted_aht_seconds), 2),
-                interval_seconds,
-                float(target_seconds),
-                float(target_service_level),
-                float(shrinkage),
-                int(max_agents),
-            )
-        )
-
-    metrics = pd.DataFrame(
-        metrics_rows,
-        columns=[
-            "traffic_erlangs",
-            "raw_agents",
-            "scheduled_agents",
-            "service_level",
-            "probability_waiting",
-            "occupancy",
-            "asa_seconds",
-        ],
-    )
-    forecast = pd.concat([forecast.reset_index(drop=True), metrics], axis=1)
-    forecast["date"] = forecast["interval_start"].dt.strftime("%Y-%m-%d")
-    forecast["day_of_year"] = range(1, 366) if interval_minutes == 1440 else (
-        forecast["interval_start"].dt.normalize().factorize()[0] + 1
-    )
-    forecast["weekday"] = forecast["interval_start"].dt.dayofweek
-    forecast["weekday_name"] = forecast["interval_start"].dt.day_name()
-    forecast = forecast.rename(
-        columns={
-            "predicted_call_volume": "call_volume",
-            "predicted_aht_seconds": "aht_seconds",
-        }
-    )
-    forecast["service_level_percent"] = forecast.pop("service_level") * 100
-    forecast["probability_waiting_percent"] = forecast.pop("probability_waiting") * 100
-    forecast["occupancy_percent"] = forecast.pop("occupancy") * 100
-    forecast = forecast.round(
-        {
-            "aht_seconds": 2,
-            "traffic_erlangs": 4,
-            "service_level_percent": 2,
-            "probability_waiting_percent": 2,
-            "occupancy_percent": 2,
-            "asa_seconds": 2,
-        }
-    )
-    forecast = forecast[FORECAST_COLUMNS]
-
-    total_calls = int(forecast["call_volume"].sum())
-    target_percent = clean_percent(target_service_level) * 100
-    peak_row = forecast.loc[forecast["call_volume"].idxmax()]
-    summary = {
-        "logic": "Average matching month/day/time intervals across all uploaded yearly datasets.",
-        "dataset_count": source_summary["dataset_count"],
-        "historical_years": source_summary["historical_years"],
-        "output_year": output_year,
-        "days": 365,
-        "interval_minutes": interval_minutes,
-        "forecast_interval_count": int(len(forecast)),
-        "total_predicted_calls": total_calls,
-        "average_aht_seconds": round(
-            float((forecast["aht_seconds"] * forecast["call_volume"]).sum()) / max(total_calls, 1),
-            2,
-        ),
-        "maximum_raw_agents": int(forecast["raw_agents"].max()),
-        "maximum_scheduled_agents": int(forecast["scheduled_agents"].max()),
-        "average_service_level_percent": round(float(forecast["service_level_percent"].mean()), 2),
-        "average_occupancy_percent": round(float(forecast["occupancy_percent"].mean()), 2),
-        "average_asa_seconds": round(float(forecast["asa_seconds"].mean()), 2),
-        "intervals_below_service_target": int(
-            (forecast["service_level_percent"] + 1e-9 < target_percent).sum()
-        ),
-        "peak_interval": {
-            "interval_start": peak_row["interval_start"].isoformat(),
-            "call_volume": int(peak_row["call_volume"]),
-            "scheduled_agents": int(peak_row["scheduled_agents"]),
-        },
-        "source_data": source_summary,
-    }
-    return forecast, summary
-
-
-# Backward-compatible name used by older code.
-
 def build_stl_forecast(
     file_paths: Sequence[str | Path],
     filenames: Sequence[str] | None = None,
@@ -619,13 +312,6 @@ def build_stl_forecast(
     shrinkage: float = 30,
     max_agents: int = 1000,
 ) -> tuple[pd.DataFrame, dict]:
-    """Forecast call volume with STL and run Erlang C for each future interval.
-
-    The uploaded files must each contain one unique calendar year. The historical
-    series is rebuilt on a continuous interval grid. STL models a weekly cycle by
-    default. A linear regression over the most recent trend window extends the STL
-    trend, while the final seasonal cycle is repeated into the forecast horizon.
-    """
     if not file_paths:
         raise ValueError("Upload at least one full-year CDR dataset.")
     if filenames is not None and len(filenames) != len(file_paths):
@@ -661,7 +347,7 @@ def build_stl_forecast(
             raise ValueError(f"Duplicate year {year}. Upload only one dataset for each year.")
         seen_years.add(year)
 
-        frame = build_interval_forecast(
+        frame = build_cdr_intervals(
             clean,
             interval_minutes=interval_minutes,
             include_empty_intervals=True,
@@ -820,26 +506,6 @@ def build_stl_forecast(
     }
     return forecast, summary
 
-def build_multi_year_forecast(
-    file_paths: Sequence[str | Path],
-    historical_years: Sequence[int] | None = None,
-    forecast_year: int | None = None,
-    interval_minutes: int = 30,
-    target_seconds: float = 20,
-    target_service_level: float = 80,
-    shrinkage: float = 30,
-    max_agents: int = 1000,
-) -> tuple[pd.DataFrame, dict]:
-    return build_multi_dataset_forecast(
-        file_paths=file_paths,
-        interval_minutes=interval_minutes,
-        target_seconds=target_seconds,
-        target_service_level=target_service_level,
-        shrinkage=shrinkage,
-        max_agents=max_agents,
-    )
-
-
 def build_dashboard_aggregates(forecast: pd.DataFrame) -> dict:
     frame = forecast.copy()
     frame["interval_start"] = pd.to_datetime(frame["interval_start"])
@@ -904,45 +570,6 @@ def build_dashboard_aggregates(forecast: pd.DataFrame) -> dict:
         "time_of_day": records(time_of_day),
     }
 
-
-def process_cdr_for_erlang(
-    file_path: str | Path,
-    interval_minutes: int,
-    target_seconds: float,
-    target_service_level: float,
-    shrinkage: float,
-    output_path: str | Path = "erlang_c_output.csv",
-) -> pd.DataFrame:
-    clean = preprocess_cdr(file_path)
-    intervals = build_interval_forecast(clean, interval_minutes=interval_minutes)
-    rows = []
-    for row in intervals.itertuples(index=False):
-        result = required_agents(
-            float(row.call_volume),
-            float(row.aht_seconds),
-            float(row.interval_seconds),
-            target_seconds,
-            target_service_level,
-            shrinkage,
-        )
-        rows.append(
-            {
-                "interval_start": row.call_datetime,
-                "call_volume": int(row.call_volume),
-                "aht_seconds": round(float(row.aht_seconds), 2),
-                "traffic_erlangs": round(result["traffic_erlangs"], 4),
-                "raw_agents": int(result["raw_agents"]),
-                "scheduled_agents": int(result["scheduled_agents"]),
-                "service_level_percent": round(result["service_level"] * 100, 2),
-                "probability_waiting_percent": round(result["probability_waiting"] * 100, 2),
-                "occupancy_percent": round(result["occupancy"] * 100, 2),
-                "asa_seconds": round(result["asa_seconds"], 2),
-            }
-        )
-    output = pd.DataFrame(rows)
-    output.to_csv(output_path, index=False)
-    return output
-
 SHIFT_DEFINITIONS = [
     {
         "code": "NIGHT",
@@ -972,14 +599,7 @@ def build_shift_requirements(
     year: int | None = None,
     month: int | None = None,
 ) -> pd.DataFrame:
-    """
-    Convert interval-level Erlang staffing requirements into
-    8-hour shift-level staffing requirements.
-
-    The required agents for a shift are based on the maximum
-    scheduled_agents requirement inside that shift.
-    """
-
+    
     if forecast.empty:
         raise ValueError("Forecast is empty.")
 
@@ -1041,13 +661,7 @@ def calculate_schedule_headcount(
     shift_requirements: pd.DataFrame,
     working_days_per_week: int = 5,
 ) -> int:
-    """
-    Estimate the minimum employee pool required.
-
-    Each employee can work only one 8-hour shift per day and
-    normally works 5 days per week.
-    """
-
+    
     if shift_requirements.empty:
         return 0
 
@@ -1096,17 +710,7 @@ def build_monthly_agent_schedule(
     month: int,
     agent_count: int | None = None,
 ) -> tuple[pd.DataFrame, dict]:
-    """
-    Generate a monthly 24x7 roster.
-
-    Rules:
-    - Three equal 8-hour shifts.
-    - Maximum one shift per agent per day.
-    - Maximum five working days per Monday-Sunday week.
-    - Therefore agents receive at least two days off in a full week.
-    - Assignments are balanced by total shifts and shift type.
-    """
-
+    
     requirements = build_shift_requirements(
         forecast=forecast,
         year=year,
@@ -1267,5 +871,1717 @@ def build_monthly_agent_schedule(
         ),
         "coverage": coverage.to_dict(orient="records"),
     }
-
     return schedule, summary
+
+def mark_agent_leave(
+    schedule: pd.DataFrame,
+    agent_id: str,
+    leave_date: str,
+) -> tuple[pd.DataFrame, dict]:
+    
+    if schedule.empty:
+        raise ValueError("Schedule is empty.")
+
+    required_columns = {
+        "agent_id",
+        "date",
+        "shift_code",
+        "shift",
+        "status",
+    }
+
+    missing_columns = required_columns - set(schedule.columns)
+
+    if missing_columns:
+        raise ValueError(
+            f"Schedule is missing required columns: {sorted(missing_columns)}"
+        )
+
+    schedule = schedule.copy()
+
+    agent_id = str(agent_id).strip()
+
+    leave_date = pd.Timestamp(leave_date).strftime("%Y-%m-%d")
+
+    matching_rows = schedule.loc[
+        (schedule["agent_id"].astype(str) == agent_id)
+        & (schedule["date"].astype(str) == leave_date)
+    ]
+
+    if matching_rows.empty:
+        raise ValueError(
+            f"No schedule found for agent {agent_id} on {leave_date}."
+        )
+
+    if len(matching_rows) > 1:
+        raise ValueError(
+            f"Multiple schedule rows found for agent {agent_id} on {leave_date}."
+        )
+
+    row_index = matching_rows.index[0]
+
+    current_shift_code = str(
+        schedule.at[row_index, "shift_code"]
+    )
+
+    current_shift = str(
+        schedule.at[row_index, "shift"]
+    )
+
+    current_status = str(
+        schedule.at[row_index, "status"]
+    )
+
+    # ---------------------------------------------
+    # Agent is already OFF
+    # ---------------------------------------------
+
+    if current_shift_code == "OFF" or current_status == "OFF":
+
+        return schedule, {
+            "agent_id": agent_id,
+            "leave_date": leave_date,
+            "leave_required": False,
+            "original_shift_code": "OFF",
+            "original_shift": "OFF",
+            "message": "Agent is already OFF on the selected date.",
+        }
+
+    # ---------------------------------------------
+    # Agent is already on leave
+    # ---------------------------------------------
+
+    if current_shift_code == "LEAVE" or current_status == "LEAVE":
+
+        return schedule, {
+            "agent_id": agent_id,
+            "leave_date": leave_date,
+            "leave_required": False,
+            "original_shift_code": schedule.at[
+                row_index,
+                "original_shift_code",
+            ]
+            if "original_shift_code" in schedule.columns
+            else None,
+            "original_shift": schedule.at[
+                row_index,
+                "original_shift",
+            ]
+            if "original_shift" in schedule.columns
+            else None,
+            "message": "Agent is already marked as LEAVE.",
+        }
+
+    # ---------------------------------------------
+    # Create columns if they don't exist yet
+    # ---------------------------------------------
+
+    if "original_shift_code" not in schedule.columns:
+        schedule["original_shift_code"] = None
+
+    if "original_shift" not in schedule.columns:
+        schedule["original_shift"] = None
+
+    # ---------------------------------------------
+    # Save original shift before changing it
+    # ---------------------------------------------
+
+    schedule.at[
+        row_index,
+        "original_shift_code",
+    ] = current_shift_code
+
+    schedule.at[
+        row_index,
+        "original_shift",
+    ] = current_shift
+
+    # ---------------------------------------------
+    # Mark agent as LEAVE
+    # ---------------------------------------------
+
+    schedule.at[
+        row_index,
+        "shift_code",
+    ] = "LEAVE"
+
+    schedule.at[
+        row_index,
+        "shift",
+    ] = "LEAVE"
+
+    schedule.at[
+        row_index,
+        "status",
+    ] = "LEAVE"
+
+    result = {
+        "agent_id": agent_id,
+        "leave_date": leave_date,
+        "leave_required": True,
+        "original_shift_code": current_shift_code,
+        "original_shift": current_shift,
+        "message": (
+            f"{agent_id} marked as LEAVE on {leave_date}. "
+            f"Original shift was {current_shift}."
+        ),
+    }
+
+    return schedule, result
+
+def calculate_leave_coverage(
+    schedule: pd.DataFrame,
+    shift_requirements: pd.DataFrame,
+    leave_result: dict,
+) -> dict:
+    
+    if schedule.empty:
+        raise ValueError("Schedule is empty.")
+
+    if shift_requirements.empty:
+        raise ValueError("Shift requirements are empty.")
+
+    if not leave_result.get("leave_required"):
+        return {
+            "coverage_required": False,
+            "shortage": 0,
+            "message": leave_result.get(
+                "message",
+                "No replacement is required.",
+            ),
+        }
+
+    agent_id = leave_result["agent_id"]
+    leave_date = leave_result["leave_date"]
+    original_shift_code = leave_result["original_shift_code"]
+
+    # ---------------------------------------------
+    # Find required staffing for this date + shift
+    # ---------------------------------------------
+
+    requirements = shift_requirements.copy()
+
+    requirements["date"] = pd.to_datetime(
+        requirements["date"]
+    ).dt.strftime("%Y-%m-%d")
+
+    requirement_row = requirements.loc[
+        (requirements["date"] == leave_date)
+        & (
+            requirements["shift_code"].astype(str)
+            == str(original_shift_code)
+        )
+    ]
+
+    if requirement_row.empty:
+        raise ValueError(
+            f"No staffing requirement found for "
+            f"{leave_date} / {original_shift_code}."
+        )
+
+    required_agents = int(
+        requirement_row.iloc[0]["required_agents"]
+    )
+
+    # ---------------------------------------------
+    # Count agents currently working this shift
+    # ---------------------------------------------
+
+    current_schedule = schedule.copy()
+
+    current_schedule["date"] = (
+        current_schedule["date"]
+        .astype(str)
+    )
+
+    working_agents = current_schedule.loc[
+        (current_schedule["date"] == leave_date)
+        & (
+            current_schedule["shift_code"].astype(str)
+            == str(original_shift_code)
+        )
+        & (
+            current_schedule["status"].astype(str)
+            == "WORK"
+        )
+    ]
+
+    assigned_agents = len(working_agents)
+
+    # ---------------------------------------------
+    # Calculate shortage
+    # ---------------------------------------------
+
+    shortage = max(
+        required_agents - assigned_agents,
+        0,
+    )
+
+    coverage_ok = assigned_agents >= required_agents
+
+    result = {
+        "agent_id": agent_id,
+        "leave_date": leave_date,
+        "shift_code": original_shift_code,
+        "required_agents": required_agents,
+        "assigned_agents": assigned_agents,
+        "shortage": shortage,
+        "coverage_ok": coverage_ok,
+    }
+
+    if coverage_ok:
+        result["message"] = (
+            f"Coverage is still sufficient for "
+            f"{original_shift_code} on {leave_date}. "
+            f"Required: {required_agents}, "
+            f"Assigned: {assigned_agents}."
+        )
+    else:
+        result["message"] = (
+            f"Replacement required for "
+            f"{original_shift_code} on {leave_date}. "
+            f"Required: {required_agents}, "
+            f"Assigned: {assigned_agents}, "
+            f"Shortage: {shortage}."
+        )
+
+    return result
+
+def find_leave_replacement_candidates(
+    schedule: pd.DataFrame,
+    leave_result: dict,
+    max_working_days_per_week: int = 5,
+) -> list[dict]:
+    
+    if schedule.empty:
+        raise ValueError("Schedule is empty.")
+
+    if not leave_result.get("leave_required"):
+        return []
+
+    leave_agent = str(
+        leave_result["agent_id"]
+    )
+
+    leave_date = pd.Timestamp(
+        leave_result["leave_date"]
+    )
+
+    leave_date_text = leave_date.strftime(
+        "%Y-%m-%d"
+    )
+
+    target_shift_code = str(
+        leave_result["original_shift_code"]
+    )
+
+    target_shift = str(
+        leave_result["original_shift"]
+    )
+
+    frame = schedule.copy()
+
+    frame["date"] = pd.to_datetime(
+        frame["date"]
+    )
+
+    # -------------------------------------------------
+    # Calculate Monday-Sunday leave week
+    # -------------------------------------------------
+
+    week_start = (
+        leave_date
+        - pd.Timedelta(
+            days=leave_date.weekday()
+        )
+    )
+
+    week_end = (
+        week_start
+        + pd.Timedelta(days=6)
+    )
+
+    # -------------------------------------------------
+    # Get all agents except leave agent
+    # -------------------------------------------------
+
+    agents = sorted(
+        agent
+        for agent in frame["agent_id"]
+        .astype(str)
+        .unique()
+        if agent != leave_agent
+    )
+
+    candidates = []
+
+    for agent in agents:
+
+        agent_rows = frame.loc[
+            frame["agent_id"]
+            .astype(str)
+            == agent
+        ]
+
+        # ---------------------------------------------
+        # Find schedule on leave date
+        # ---------------------------------------------
+
+        day_rows = agent_rows.loc[
+            agent_rows["date"]
+            == leave_date
+        ]
+
+        if day_rows.empty:
+            continue
+
+        if len(day_rows) > 1:
+            continue
+
+        day_row = day_rows.iloc[0]
+
+        current_status = str(
+            day_row["status"]
+        )
+
+        current_shift_code = str(
+            day_row["shift_code"]
+        )
+
+        # ---------------------------------------------
+        # Only OFF agents can be selected
+        # ---------------------------------------------
+
+        if (
+            current_status != "OFF"
+            or current_shift_code != "OFF"
+        ):
+            continue
+
+        # ---------------------------------------------
+        # Count unique working days in leave week
+        # ---------------------------------------------
+
+        weekly_rows = agent_rows.loc[
+            (
+                agent_rows["date"]
+                >= week_start
+            )
+            & (
+                agent_rows["date"]
+                <= week_end
+            )
+            & (
+                agent_rows["status"]
+                .astype(str)
+                == "WORK"
+            )
+        ]
+
+        weekly_working_days = int(
+            weekly_rows["date"].nunique()
+        )
+
+        # ---------------------------------------------
+        # Calculate working days after cover
+        # ---------------------------------------------
+
+        weekly_days_after_cover = (
+            weekly_working_days + 1
+        )
+
+        # ---------------------------------------------
+        # Reject if cover would exceed 5 days
+        # ---------------------------------------------
+
+        if (
+            weekly_days_after_cover
+            > max_working_days_per_week
+        ):
+            continue
+
+        # ---------------------------------------------
+        # Count unique monthly working days
+        # ---------------------------------------------
+
+        monthly_working_days = int(
+            agent_rows.loc[
+                agent_rows["status"]
+                .astype(str)
+                == "WORK",
+                "date",
+            ].nunique()
+        )
+
+        # ---------------------------------------------
+        # Add valid candidate
+        # ---------------------------------------------
+
+        candidates.append(
+            {
+                "agent_id": agent,
+                "leave_date": leave_date_text,
+
+                "target_shift_code":
+                    target_shift_code,
+
+                "target_shift":
+                    target_shift,
+
+                "current_status": "OFF",
+
+                "weekly_working_days":
+                    weekly_working_days,
+
+                "weekly_days_after_cover":
+                    weekly_days_after_cover,
+
+                "monthly_working_days":
+                    monthly_working_days,
+            }
+        )
+
+    # -------------------------------------------------
+    # Rank candidates fairly
+    # -------------------------------------------------
+
+    candidates.sort(
+        key=lambda item: (
+            item[
+                "weekly_working_days"
+            ],
+            item[
+                "monthly_working_days"
+            ],
+            item[
+                "agent_id"
+            ],
+        )
+    )
+
+    return candidates
+
+def assign_leave_replacement(
+    schedule: pd.DataFrame,
+    leave_result: dict,
+    coverage_result: dict,
+    candidates: list[dict],
+) -> tuple[pd.DataFrame, dict]:
+   
+    if schedule.empty:
+        raise ValueError("Schedule is empty.")
+
+    if not leave_result.get("leave_required"):
+        return schedule, {
+            "replacement_applied": False,
+            "message": "No leave replacement is required.",
+        }
+
+    if coverage_result.get("coverage_ok"):
+        return schedule, {
+            "replacement_applied": False,
+            "message": (
+                "Coverage is already sufficient. "
+                "No replacement is required."
+            ),
+        }
+
+    if not candidates:
+        return schedule, {
+            "replacement_applied": False,
+            "message": (
+                "No eligible OFF agent was found "
+                "to cover the leave shift."
+            ),
+        }
+
+    updated_schedule = schedule.copy()
+
+    replacement = candidates[0]
+
+    replacement_agent = replacement["agent_id"]
+    leave_date = leave_result["leave_date"]
+
+    target_shift_code = leave_result[
+        "original_shift_code"
+    ]
+
+    target_shift = leave_result[
+        "original_shift"
+    ]
+
+    # -------------------------------------------------
+    # Find replacement agent row
+    # -------------------------------------------------
+
+    matching_rows = updated_schedule.loc[
+        (
+            updated_schedule["agent_id"].astype(str)
+            == str(replacement_agent)
+        )
+        & (
+            updated_schedule["date"].astype(str)
+            == str(leave_date)
+        )
+    ]
+
+    if matching_rows.empty:
+        raise ValueError(
+            f"No schedule row found for replacement agent "
+            f"{replacement_agent} on {leave_date}."
+        )
+
+    if len(matching_rows) > 1:
+        raise ValueError(
+            f"Multiple schedule rows found for replacement agent "
+            f"{replacement_agent} on {leave_date}."
+        )
+
+    row_index = matching_rows.index[0]
+
+    current_status = str(
+        updated_schedule.at[
+            row_index,
+            "status",
+        ]
+    )
+
+    current_shift_code = str(
+        updated_schedule.at[
+            row_index,
+            "shift_code",
+        ]
+    )
+
+    # -------------------------------------------------
+    # Confirm agent is still OFF
+    # -------------------------------------------------
+
+    if (
+        current_status != "OFF"
+        or current_shift_code != "OFF"
+    ):
+        raise ValueError(
+            f"{replacement_agent} is no longer "
+            f"OFF on {leave_date}."
+        )
+
+    # -------------------------------------------------
+    # Keep previous assignment for audit/history
+    # -------------------------------------------------
+
+    if (
+        "previous_shift_code"
+        not in updated_schedule.columns
+    ):
+        updated_schedule[
+            "previous_shift_code"
+        ] = None
+
+    if (
+        "previous_shift"
+        not in updated_schedule.columns
+    ):
+        updated_schedule[
+            "previous_shift"
+        ] = None
+
+    if (
+        "assignment_type"
+        not in updated_schedule.columns
+    ):
+        updated_schedule[
+            "assignment_type"
+        ] = None
+
+    updated_schedule.at[
+        row_index,
+        "previous_shift_code",
+    ] = current_shift_code
+
+    updated_schedule.at[
+        row_index,
+        "previous_shift",
+    ] = "OFF"
+
+    # -------------------------------------------------
+    # Assign replacement shift
+    # -------------------------------------------------
+
+    updated_schedule.at[
+        row_index,
+        "shift_code",
+    ] = target_shift_code
+
+    updated_schedule.at[
+        row_index,
+        "shift",
+    ] = target_shift
+
+    updated_schedule.at[
+        row_index,
+        "status",
+    ] = "WORK"
+
+    updated_schedule.at[
+        row_index,
+        "assignment_type",
+    ] = "LEAVE_COVER"
+
+    # -------------------------------------------------
+    # Validate rest period after assignment
+    # -------------------------------------------------
+
+    rest_validation = validate_agent_rest_period(
+        updated_schedule,
+        replacement_agent,
+        leave_date,
+    )
+
+    if not rest_validation["valid"]:
+        raise ValueError(
+            rest_validation["message"]
+        )
+
+    # -------------------------------------------------
+    # Build result
+    # -------------------------------------------------
+
+    result = {
+        "replacement_applied": True,
+        "leave_agent": leave_result[
+            "agent_id"
+        ],
+        "replacement_agent": replacement_agent,
+        "leave_date": leave_date,
+        "shift_code": target_shift_code,
+        "shift": target_shift,
+
+        "weekly_working_days_before":
+            replacement[
+                "weekly_working_days"
+            ],
+
+        "weekly_working_days_after":
+            replacement[
+                "weekly_days_after_cover"
+            ],
+
+        "monthly_working_days_before":
+            replacement[
+                "monthly_working_days"
+            ],
+
+        "rest_validation":
+            rest_validation,
+
+        "message": (
+            f"{replacement_agent} assigned to cover "
+            f"{target_shift_code} on {leave_date} "
+            f"for {leave_result['agent_id']}."
+        ),
+    }
+
+    return updated_schedule, result
+
+def find_safe_shift_transfer_candidates(
+    schedule: pd.DataFrame,
+    shift_requirements: pd.DataFrame,
+    leave_result: dict,
+) -> list[dict]:
+   
+    if schedule.empty:
+        raise ValueError("Schedule is empty.")
+
+    if shift_requirements.empty:
+        raise ValueError("Shift requirements are empty.")
+
+    if not leave_result.get("leave_required"):
+        return []
+
+    frame = schedule.copy()
+
+    frame["date"] = pd.to_datetime(
+        frame["date"]
+    ).dt.strftime("%Y-%m-%d")
+
+    requirements = shift_requirements.copy()
+
+    requirements["date"] = pd.to_datetime(
+        requirements["date"]
+    ).dt.strftime("%Y-%m-%d")
+
+    leave_date = leave_result["leave_date"]
+    leave_agent = leave_result["agent_id"]
+
+    target_shift_code = leave_result[
+        "original_shift_code"
+    ]
+
+    target_shift = leave_result[
+        "original_shift"
+    ]
+
+    # ---------------------------------------------
+    # Agents working on the leave date
+    # but not already in the target shift
+    # ---------------------------------------------
+
+    working_rows = frame.loc[
+        (frame["date"] == leave_date)
+        & (frame["status"].astype(str) == "WORK")
+        & (
+            frame["shift_code"].astype(str)
+            != str(target_shift_code)
+        )
+        & (
+            frame["agent_id"].astype(str)
+            != str(leave_agent)
+        )
+    ]
+
+    candidates = []
+
+    for row in working_rows.itertuples(index=False):
+
+        source_shift_code = str(
+            row.shift_code
+        )
+
+        source_shift = str(
+            row.shift
+        )
+
+        # -----------------------------------------
+        # Required staffing in source shift
+        # -----------------------------------------
+
+        source_requirement = requirements.loc[
+            (requirements["date"] == leave_date)
+            & (
+                requirements["shift_code"].astype(str)
+                == source_shift_code
+            )
+        ]
+
+        if source_requirement.empty:
+            continue
+
+        required_agents = int(
+            source_requirement.iloc[0][
+                "required_agents"
+            ]
+        )
+
+        # -----------------------------------------
+        # Current agents in source shift
+        # -----------------------------------------
+
+        source_working = frame.loc[
+            (frame["date"] == leave_date)
+            & (
+                frame["shift_code"].astype(str)
+                == source_shift_code
+            )
+            & (
+                frame["status"].astype(str)
+                == "WORK"
+            )
+        ]
+
+        assigned_agents = len(
+            source_working
+        )
+
+        assigned_after_move = (
+            assigned_agents - 1
+        )
+
+        spare_agents = (
+            assigned_agents - required_agents
+        )
+
+        # -----------------------------------------
+        # Reject if moving this agent creates
+        # a shortage in their original shift
+        # -----------------------------------------
+
+        if assigned_after_move < required_agents:
+            continue
+
+        # -----------------------------------------
+        # Monthly working days
+        # -----------------------------------------
+
+        agent_rows = frame.loc[
+            frame["agent_id"].astype(str)
+            == str(row.agent_id)
+        ]
+
+        monthly_working_days = len(
+            agent_rows.loc[
+                agent_rows["status"].astype(str)
+                == "WORK"
+            ]
+        )
+
+        candidates.append(
+            {
+                "agent_id": row.agent_id,
+                "leave_date": leave_date,
+                "target_shift_code": target_shift_code,
+                "target_shift": target_shift,
+                "source_shift_code": source_shift_code,
+                "source_shift": source_shift,
+                "source_required_agents": required_agents,
+                "source_assigned_agents": assigned_agents,
+                "source_assigned_after_move": assigned_after_move,
+                "source_spare_agents": spare_agents,
+                "monthly_working_days": monthly_working_days,
+            }
+        )
+
+    # ---------------------------------------------
+    # Ranking:
+    # 1. shifts with more spare agents
+    # 2. agents with fewer monthly working days
+    # 3. agent id
+    # ---------------------------------------------
+
+    candidates.sort(
+        key=lambda item: (
+            -item["source_spare_agents"],
+            item["monthly_working_days"],
+            item["agent_id"],
+        )
+    )
+
+    return candidates
+
+def assign_safe_shift_transfer(
+    schedule: pd.DataFrame,
+    leave_result: dict,
+    transfer_candidates: list[dict],
+) -> tuple[pd.DataFrame, dict]:
+    
+    if schedule.empty:
+        raise ValueError("Schedule is empty.")
+
+    if not transfer_candidates:
+        return schedule, {
+            "transfer_applied": False,
+            "message": (
+                "No safe shift-transfer candidate "
+                "was found."
+            ),
+        }
+
+    updated_schedule = schedule.copy()
+
+    candidate = transfer_candidates[0]
+
+    agent_id = candidate["agent_id"]
+    leave_date = leave_result["leave_date"]
+
+    # -------------------------------------------------
+    # Find transfer agent row
+    # -------------------------------------------------
+
+    row = updated_schedule.loc[
+        (
+            updated_schedule["agent_id"]
+            .astype(str)
+            == str(agent_id)
+        )
+        & (
+            updated_schedule["date"]
+            .astype(str)
+            == str(leave_date)
+        )
+    ]
+
+    if row.empty:
+        raise ValueError(
+            f"No schedule found for {agent_id} "
+            f"on {leave_date}."
+        )
+
+    if len(row) > 1:
+        raise ValueError(
+            f"Multiple schedule rows found for "
+            f"{agent_id} on {leave_date}."
+        )
+
+    row_index = row.index[0]
+
+    # -------------------------------------------------
+    # Audit columns
+    # -------------------------------------------------
+
+    if (
+        "previous_shift_code"
+        not in updated_schedule.columns
+    ):
+        updated_schedule[
+            "previous_shift_code"
+        ] = None
+
+    if (
+        "previous_shift"
+        not in updated_schedule.columns
+    ):
+        updated_schedule[
+            "previous_shift"
+        ] = None
+
+    if (
+        "assignment_type"
+        not in updated_schedule.columns
+    ):
+        updated_schedule[
+            "assignment_type"
+        ] = None
+
+    # -------------------------------------------------
+    # Store original shift
+    # -------------------------------------------------
+
+    updated_schedule.at[
+        row_index,
+        "previous_shift_code",
+    ] = candidate["source_shift_code"]
+
+    updated_schedule.at[
+        row_index,
+        "previous_shift",
+    ] = candidate["source_shift"]
+
+    # -------------------------------------------------
+    # Move agent to leave shift
+    # -------------------------------------------------
+
+    updated_schedule.at[
+        row_index,
+        "shift_code",
+    ] = leave_result[
+        "original_shift_code"
+    ]
+
+    updated_schedule.at[
+        row_index,
+        "shift",
+    ] = leave_result[
+        "original_shift"
+    ]
+
+    updated_schedule.at[
+        row_index,
+        "status",
+    ] = "WORK"
+
+    updated_schedule.at[
+        row_index,
+        "assignment_type",
+    ] = "SHIFT_TRANSFER"
+
+    # -------------------------------------------------
+    # Validate rest period after transfer
+    # -------------------------------------------------
+
+    rest_validation = validate_agent_rest_period(
+        updated_schedule,
+        agent_id,
+        leave_date,
+    )
+
+    if not rest_validation["valid"]:
+        raise ValueError(
+            rest_validation["message"]
+        )
+
+    # -------------------------------------------------
+    # Build result
+    # -------------------------------------------------
+
+    result = {
+        "transfer_applied": True,
+
+        "leave_agent":
+            leave_result["agent_id"],
+
+        "replacement_agent":
+            agent_id,
+
+        "leave_date":
+            leave_date,
+
+        "source_shift_code":
+            candidate[
+                "source_shift_code"
+            ],
+
+        "target_shift_code":
+            leave_result[
+                "original_shift_code"
+            ],
+
+        "source_required_agents":
+            candidate[
+                "source_required_agents"
+            ],
+
+        "source_assigned_after_move":
+            candidate[
+                "source_assigned_after_move"
+            ],
+
+        "rest_validation":
+            rest_validation,
+
+        "message": (
+            f"{agent_id} moved from "
+            f"{candidate['source_shift_code']} "
+            f"to {leave_result['original_shift_code']} "
+            f"on {leave_date}."
+        ),
+    }
+
+    return updated_schedule, result
+
+def resolve_agent_leave(
+    schedule: pd.DataFrame,
+    shift_requirements: pd.DataFrame,
+    agent_id: str,
+    leave_date: str,
+) -> tuple[pd.DataFrame, dict]:
+    
+    if schedule.empty:
+        raise ValueError("Schedule is empty.")
+
+    if shift_requirements.empty:
+        raise ValueError("Shift requirements are empty.")
+
+    # -------------------------------------------------
+    # Step 1: Mark requested agent as leave
+    # -------------------------------------------------
+
+    updated_schedule, leave_result = mark_agent_leave(
+        schedule=schedule,
+        agent_id=agent_id,
+        leave_date=leave_date,
+    )
+
+    # -------------------------------------------------
+    # Step 2: Check coverage after leave
+    # -------------------------------------------------
+
+    coverage_before = calculate_leave_coverage(
+        schedule=updated_schedule,
+        shift_requirements=shift_requirements,
+        leave_result=leave_result,
+    )
+
+    # -------------------------------------------------
+    # If agent was already OFF / no leave needed
+    # -------------------------------------------------
+
+    if not leave_result.get("leave_required"):
+
+        return updated_schedule, {
+            "resolved": True,
+            "method": "NO_ACTION",
+            "leave": leave_result,
+            "coverage_before": coverage_before,
+            "coverage_after": coverage_before,
+            "message": leave_result.get(
+                "message",
+                "No action required.",
+            ),
+        }
+
+    # -------------------------------------------------
+    # If coverage is still okay after leave
+    # -------------------------------------------------
+
+    if coverage_before.get("coverage_ok"):
+
+        return updated_schedule, {
+            "resolved": True,
+            "method": "NO_REPLACEMENT_REQUIRED",
+            "leave": leave_result,
+            "coverage_before": coverage_before,
+            "coverage_after": coverage_before,
+            "message": (
+                "Leave approved. Existing staffing "
+                "is still sufficient."
+            ),
+        }
+
+    # -------------------------------------------------
+    # Step 3: Try OFF-agent replacement
+    # -------------------------------------------------
+
+    off_candidates = find_leave_replacement_candidates(
+        schedule=updated_schedule,
+        leave_result=leave_result,
+    )
+
+    if off_candidates:
+
+        updated_schedule, replacement_result = (
+            assign_leave_replacement(
+                schedule=updated_schedule,
+                leave_result=leave_result,
+                coverage_result=coverage_before,
+                candidates=off_candidates,
+            )
+        )
+
+        coverage_after = calculate_leave_coverage(
+            schedule=updated_schedule,
+            shift_requirements=shift_requirements,
+            leave_result=leave_result,
+        )
+
+        if coverage_after.get("coverage_ok"):
+
+            return updated_schedule, {
+                "resolved": True,
+                "method": "OFF_AGENT_COVER",
+                "leave": leave_result,
+                "coverage_before": coverage_before,
+                "coverage_after": coverage_after,
+                "replacement": replacement_result,
+                "message": (
+                    f"Leave resolved using OFF agent "
+                    f"{replacement_result['replacement_agent']}."
+                ),
+            }
+
+    # -------------------------------------------------
+    # Step 4: Try safe shift transfer
+    # -------------------------------------------------
+
+    transfer_candidates = find_safe_shift_transfer_candidates(
+        schedule=updated_schedule,
+        shift_requirements=shift_requirements,
+        leave_result=leave_result,
+    )
+
+    if transfer_candidates:
+
+        updated_schedule, transfer_result = (
+            assign_safe_shift_transfer(
+                schedule=updated_schedule,
+                leave_result=leave_result,
+                transfer_candidates=transfer_candidates,
+            )
+        )
+
+        coverage_after = calculate_leave_coverage(
+            schedule=updated_schedule,
+            shift_requirements=shift_requirements,
+            leave_result=leave_result,
+        )
+
+        if coverage_after.get("coverage_ok"):
+
+            return updated_schedule, {
+                "resolved": True,
+                "method": "SHIFT_TRANSFER",
+                "leave": leave_result,
+                "coverage_before": coverage_before,
+                "coverage_after": coverage_after,
+                "transfer": transfer_result,
+                "message": (
+                    f"Leave resolved by moving "
+                    f"{transfer_result['replacement_agent']} "
+                    f"from "
+                    f"{transfer_result['source_shift_code']} "
+                    f"to "
+                    f"{transfer_result['target_shift_code']}."
+                ),
+            }
+
+    # -------------------------------------------------
+    # Step 5: No safe option found
+    # -------------------------------------------------
+
+    final_coverage = calculate_leave_coverage(
+        schedule=updated_schedule,
+        shift_requirements=shift_requirements,
+        leave_result=leave_result,
+    )
+
+    return updated_schedule, {
+        "resolved": False,
+        "method": "UNRESOLVED",
+        "leave": leave_result,
+        "coverage_before": coverage_before,
+        "coverage_after": final_coverage,
+        "message": (
+            "Leave could not be covered safely. "
+            "No eligible OFF agent or safe shift-transfer "
+            "candidate was available."
+        ),
+    }
+
+def swap_agent_shifts(
+    schedule: pd.DataFrame,
+    agent_1: str,
+    agent_2: str,
+    swap_date: str,
+) -> tuple[pd.DataFrame, dict]:
+    
+    if schedule.empty:
+        raise ValueError("Schedule is empty.")
+
+    updated_schedule = schedule.copy()
+
+    agent_1 = str(agent_1).strip()
+    agent_2 = str(agent_2).strip()
+
+    if agent_1 == agent_2:
+        raise ValueError(
+            "Select two different agents for a shift swap."
+        )
+
+    swap_date = pd.Timestamp(
+        swap_date
+    ).strftime("%Y-%m-%d")
+
+    # ---------------------------------------------
+    # Find Agent 1 schedule row
+    # ---------------------------------------------
+
+    agent_1_rows = updated_schedule.loc[
+        (
+            updated_schedule["agent_id"].astype(str)
+            == agent_1
+        )
+        & (
+            updated_schedule["date"].astype(str)
+            == swap_date
+        )
+    ]
+
+    if agent_1_rows.empty:
+        raise ValueError(
+            f"No schedule found for {agent_1} on {swap_date}."
+        )
+
+    if len(agent_1_rows) > 1:
+        raise ValueError(
+            f"Multiple schedule rows found for "
+            f"{agent_1} on {swap_date}."
+        )
+
+    # ---------------------------------------------
+    # Find Agent 2 schedule row
+    # ---------------------------------------------
+
+    agent_2_rows = updated_schedule.loc[
+        (
+            updated_schedule["agent_id"].astype(str)
+            == agent_2
+        )
+        & (
+            updated_schedule["date"].astype(str)
+            == swap_date
+        )
+    ]
+
+    if agent_2_rows.empty:
+        raise ValueError(
+            f"No schedule found for {agent_2} on {swap_date}."
+        )
+
+    if len(agent_2_rows) > 1:
+        raise ValueError(
+            f"Multiple schedule rows found for "
+            f"{agent_2} on {swap_date}."
+        )
+
+    index_1 = agent_1_rows.index[0]
+    index_2 = agent_2_rows.index[0]
+
+    # ---------------------------------------------
+    # Read current assignments
+    # ---------------------------------------------
+
+    status_1 = str(
+        updated_schedule.at[index_1, "status"]
+    )
+
+    status_2 = str(
+        updated_schedule.at[index_2, "status"]
+    )
+
+    shift_code_1 = str(
+        updated_schedule.at[index_1, "shift_code"]
+    )
+
+    shift_code_2 = str(
+        updated_schedule.at[index_2, "shift_code"]
+    )
+
+    shift_1 = str(
+        updated_schedule.at[index_1, "shift"]
+    )
+
+    shift_2 = str(
+        updated_schedule.at[index_2, "shift"]
+    )
+
+    # ---------------------------------------------
+    # Basic validation
+    # ---------------------------------------------
+
+    if status_1 != "WORK":
+        raise ValueError(
+            f"{agent_1} is not working on {swap_date}."
+        )
+
+    if status_2 != "WORK":
+        raise ValueError(
+            f"{agent_2} is not working on {swap_date}."
+        )
+
+    if shift_code_1 in {"OFF", "LEAVE"}:
+        raise ValueError(
+            f"{agent_1} cannot swap from {shift_code_1}."
+        )
+
+    if shift_code_2 in {"OFF", "LEAVE"}:
+        raise ValueError(
+            f"{agent_2} cannot swap from {shift_code_2}."
+        )
+
+    if shift_code_1 == shift_code_2:
+        raise ValueError(
+            "Both agents already have the same shift."
+        )
+
+    # ---------------------------------------------
+    # Create audit columns if needed
+    # ---------------------------------------------
+
+    if "previous_shift_code" not in updated_schedule.columns:
+        updated_schedule["previous_shift_code"] = None
+
+    if "previous_shift" not in updated_schedule.columns:
+        updated_schedule["previous_shift"] = None
+
+    if "assignment_type" not in updated_schedule.columns:
+        updated_schedule["assignment_type"] = None
+
+    # ---------------------------------------------
+    # Store original assignments
+    # ---------------------------------------------
+
+    updated_schedule.at[
+        index_1,
+        "previous_shift_code",
+    ] = shift_code_1
+
+    updated_schedule.at[
+        index_1,
+        "previous_shift",
+    ] = shift_1
+
+    updated_schedule.at[
+        index_2,
+        "previous_shift_code",
+    ] = shift_code_2
+
+    updated_schedule.at[
+        index_2,
+        "previous_shift",
+    ] = shift_2
+
+    # ---------------------------------------------
+    # Perform swap
+    # ---------------------------------------------
+
+    updated_schedule.at[
+        index_1,
+        "shift_code",
+    ] = shift_code_2
+
+    updated_schedule.at[
+        index_1,
+        "shift",
+    ] = shift_2
+
+    updated_schedule.at[
+        index_2,
+        "shift_code",
+    ] = shift_code_1
+
+    updated_schedule.at[
+        index_2,
+        "shift",
+    ] = shift_1
+
+    updated_schedule.at[
+        index_1,
+        "assignment_type",
+    ] = "SHIFT_SWAP"
+
+    updated_schedule.at[
+        index_2,
+        "assignment_type",
+    ] = "SHIFT_SWAP"
+
+    # ---------------------------------------------
+    # Validate rest period after swap
+    # ---------------------------------------------
+
+    validation_1 = validate_agent_rest_period(
+        updated_schedule,
+        agent_1,
+        swap_date,
+    )
+
+    validation_2 = validate_agent_rest_period(
+        updated_schedule,
+        agent_2,
+        swap_date,
+    )
+
+    if not validation_1["valid"]:
+        raise ValueError(
+            validation_1["message"]
+        )
+
+    if not validation_2["valid"]:
+        raise ValueError(
+            validation_2["message"]
+        )
+
+    # ---------------------------------------------
+    # Build result
+    # ---------------------------------------------
+
+    result = {
+        "swap_applied": True,
+        "date": swap_date,
+
+        "agent_1": agent_1,
+        "agent_1_previous_shift": shift_code_1,
+        "agent_1_new_shift": shift_code_2,
+
+        "agent_2": agent_2,
+        "agent_2_previous_shift": shift_code_2,
+        "agent_2_new_shift": shift_code_1,
+
+        "agent_1_rest_validation": validation_1,
+        "agent_2_rest_validation": validation_2,
+
+        "message": (
+            f"{agent_1} and {agent_2} successfully "
+            f"swapped shifts on {swap_date}."
+        ),
+    }
+
+    return updated_schedule, result
+
+def validate_agent_rest_period(
+    schedule: pd.DataFrame,
+    agent_id: str,
+    target_date: str,
+    minimum_rest_hours: int = 8,
+) -> dict:
+   
+    if schedule.empty:
+        raise ValueError("Schedule is empty.")
+
+    frame = schedule.copy()
+
+    frame["date"] = pd.to_datetime(
+        frame["date"]
+    )
+
+    target_date = pd.Timestamp(
+        target_date
+    )
+
+    agent_rows = frame.loc[
+        frame["agent_id"].astype(str)
+        == str(agent_id)
+    ].sort_values("date")
+
+    target_rows = agent_rows.loc[
+        agent_rows["date"] == target_date
+    ]
+
+    if target_rows.empty:
+        raise ValueError(
+            f"No schedule found for {agent_id} on "
+            f"{target_date.strftime('%Y-%m-%d')}."
+        )
+
+    target_row = target_rows.iloc[0]
+
+    if str(target_row["status"]) != "WORK":
+        return {
+            "valid": True,
+            "message": "Agent is not working on the target date.",
+        }
+
+    shift_lookup = {
+        "NIGHT": {
+            "start": 0,
+            "end": 8,
+        },
+        "MORNING": {
+            "start": 8,
+            "end": 16,
+        },
+        "EVENING": {
+            "start": 16,
+            "end": 24,
+        },
+    }
+
+    target_shift_code = str(
+        target_row["shift_code"]
+    )
+
+    if target_shift_code not in shift_lookup:
+        return {
+            "valid": True,
+            "message": "No rest validation required.",
+        }
+
+    target_start = (
+        target_date
+        + pd.Timedelta(
+            hours=shift_lookup[target_shift_code]["start"]
+        )
+    )
+
+    target_end = (
+        target_date
+        + pd.Timedelta(
+            hours=shift_lookup[target_shift_code]["end"]
+        )
+    )
+
+    previous_date = (
+        target_date - pd.Timedelta(days=1)
+    )
+
+    next_date = (
+        target_date + pd.Timedelta(days=1)
+    )
+
+    # ---------------------------------------------
+    # Check previous day
+    # ---------------------------------------------
+
+    previous_rows = agent_rows.loc[
+        agent_rows["date"] == previous_date
+    ]
+
+    if not previous_rows.empty:
+
+        previous_row = previous_rows.iloc[0]
+
+        previous_status = str(
+            previous_row["status"]
+        )
+
+        previous_shift_code = str(
+            previous_row["shift_code"]
+        )
+
+        if (
+            previous_status == "WORK"
+            and previous_shift_code in shift_lookup
+        ):
+
+            previous_end = (
+                previous_date
+                + pd.Timedelta(
+                    hours=shift_lookup[
+                        previous_shift_code
+                    ]["end"]
+                )
+            )
+
+            rest_hours = (
+                target_start - previous_end
+            ).total_seconds() / 3600
+
+            if rest_hours < minimum_rest_hours:
+
+                return {
+                    "valid": False,
+                    "reason": "PREVIOUS_SHIFT_REST",
+                    "rest_hours": rest_hours,
+                    "message": (
+                        f"{agent_id} would only have "
+                        f"{rest_hours:.1f} hours rest "
+                        f"before the new shift."
+                    ),
+                }
+
+    # ---------------------------------------------
+    # Check next day
+    # ---------------------------------------------
+
+    next_rows = agent_rows.loc[
+        agent_rows["date"] == next_date
+    ]
+
+    if not next_rows.empty:
+
+        next_row = next_rows.iloc[0]
+
+        next_status = str(
+            next_row["status"]
+        )
+
+        next_shift_code = str(
+            next_row["shift_code"]
+        )
+
+        if (
+            next_status == "WORK"
+            and next_shift_code in shift_lookup
+        ):
+
+            next_start = (
+                next_date
+                + pd.Timedelta(
+                    hours=shift_lookup[
+                        next_shift_code
+                    ]["start"]
+                )
+            )
+
+            rest_hours = (
+                next_start - target_end
+            ).total_seconds() / 3600
+
+            if rest_hours < minimum_rest_hours:
+
+                return {
+                    "valid": False,
+                    "reason": "NEXT_SHIFT_REST",
+                    "rest_hours": rest_hours,
+                    "message": (
+                        f"{agent_id} would only have "
+                        f"{rest_hours:.1f} hours rest "
+                        f"before the next shift."
+                    ),
+                }
+
+    return {
+        "valid": True,
+        "message": (
+            f"{agent_id} satisfies the minimum "
+            f"{minimum_rest_hours}-hour rest rule."
+        ),
+    }
