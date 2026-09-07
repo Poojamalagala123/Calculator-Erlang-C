@@ -17,4 +17,5 @@ env/
 Thumbs.db
 
 *.log
+logs/
 tests/

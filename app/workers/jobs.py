@@ -8,6 +8,7 @@ import pandas as pd
 from app.core.forecasting.stl import build_stl_forecast
 from app.core.forecasting.aggregates import build_dashboard_aggregates
 from app.workers.task_manager import task_manager
+from app.logger import logger
 
 def run_stl_forecast_worker(
     job_id: str,
@@ -24,7 +25,10 @@ def run_stl_forecast_worker(
     include_forecast_rows: bool,
     temp_dir: Path | None = None,
 ) -> dict:
+    logger.info(f"[Job {job_id}] Worker started for {len(file_paths)} file(s): {filenames}")
+
     def progress_callback(percent: int, message: str) -> None:
+        logger.info(f"[Job {job_id}] [{percent}%] {message}")
         task_manager.update_job(
             job_id,
             status="processing",
@@ -70,7 +74,11 @@ def run_stl_forecast_worker(
         else:
             response["forecast"] = []
 
+        logger.info(f"[Job {job_id}] Completed successfully! Predicted calls: {summary['total_predicted_calls']:,}")
         return response
+    except Exception as exc:
+        logger.exception(f"[Job {job_id}] Failed with exception: {exc}")
+        raise
     finally:
         if temp_dir and temp_dir.exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
