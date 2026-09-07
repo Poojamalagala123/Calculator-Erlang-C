@@ -1702,16 +1702,16 @@
 
 
             statusElement.textContent =
-                "Running STL decomposition and Erlang C calculations...";
+                "Uploading files and starting asynchronous processing...";
 
 
             try {
 
                 const endpoint =
-                    "/api/v1/cdr/stl-forecast";
+                    "/api/v1/cdr/stl-forecast/async";
 
 
-                const response =
+                const submitResponse =
                     await fetch(
                         endpoint,
                         {
@@ -1721,17 +1721,37 @@
                     );
 
 
-                const data =
-                    await response.json();
+                const submitData =
+                    await submitResponse.json();
 
 
-                if (!response.ok) {
+                if (!submitResponse.ok) {
 
                     throw new Error(
-                        data.detail
-                        || "Forecast failed."
+                        submitData.detail
+                        || "Forecast upload failed."
                     );
 
+                }
+
+                const jobId = submitData.job_id;
+                let data = null;
+
+                while (true) {
+                    await new Promise((resolve) => setTimeout(resolve, 500));
+                    const pollRes = await fetch(`/api/v1/jobs/${jobId}`);
+                    if (!pollRes.ok) {
+                        throw new Error("Failed to check job progress.");
+                    }
+                    const job = await pollRes.json();
+                    statusElement.textContent = `[${job.progress}%] ${job.message}`;
+
+                    if (job.status === "completed") {
+                        data = job.result;
+                        break;
+                    } else if (job.status === "failed") {
+                        throw new Error(job.error || job.message || "Forecast processing failed.");
+                    }
                 }
 
 
