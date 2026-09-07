@@ -745,6 +745,7 @@ def build_monthly_agent_schedule(
     shift_assignments = defaultdict(lambda: defaultdict(int))
     weekly_workdays = defaultdict(lambda: defaultdict(int))
     worked_dates = defaultdict(set)
+    last_work_end = {}
 
     schedule_rows = []
     coverage_rows = []
@@ -763,11 +764,18 @@ def build_monthly_agent_schedule(
 
         required = int(requirement.required_agents)
 
+        shift_start = date_value + pd.Timedelta(hours=requirement.start_hour)
+
         candidates = [
             agent
             for agent in agents
             if date_value.date() not in worked_dates[agent]
             and weekly_workdays[agent][week_start] < 5
+            and (
+                agent not in last_work_end
+                or shift_start - last_work_end[agent]
+                >= pd.Timedelta(hours=8)
+            )
         ]
 
         candidates.sort(
@@ -797,6 +805,9 @@ def build_monthly_agent_schedule(
             shift_assignments[agent][requirement.shift_code] += 1
             weekly_workdays[agent][week_start] += 1
             worked_dates[agent].add(date_value.date())
+            last_work_end[agent] = date_value + pd.Timedelta(
+                hours=requirement.end_hour
+            )
 
         assigned = len(selected_agents)
 
