@@ -72,6 +72,5 @@ def run_stl_forecast_worker(
 
         return response
     finally:
-        # Cleanup temporary files safely
         if temp_dir and temp_dir.exists():
             shutil.rmtree(temp_dir, ignore_errors=True)

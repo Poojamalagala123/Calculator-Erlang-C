@@ -7,7 +7,7 @@ def validate_agent_rest_period(
     target_date: str,
     minimum_rest_hours: int = 8,
 ) -> dict:
-   
+
     if schedule.empty:
         raise ValueError("Schedule is empty.")
 
@@ -91,10 +91,6 @@ def validate_agent_rest_period(
         target_date + pd.Timedelta(days=1)
     )
 
-    # ---------------------------------------------
-    # Check previous day
-    # ---------------------------------------------
-
     previous_rows = agent_rows.loc[
         agent_rows["date"] == previous_date
     ]
@@ -141,10 +137,6 @@ def validate_agent_rest_period(
                         f"before the new shift."
                     ),
                 }
-
-    # ---------------------------------------------
-    # Check next day
-    # ---------------------------------------------
 
     next_rows = agent_rows.loc[
         agent_rows["date"] == next_date
@@ -207,7 +199,7 @@ def swap_agent_shifts(
     agent_2: str,
     swap_date: str,
 ) -> tuple[pd.DataFrame, dict]:
-    
+
     if schedule.empty:
         raise ValueError("Schedule is empty.")
 
@@ -224,10 +216,6 @@ def swap_agent_shifts(
     swap_date = pd.Timestamp(
         swap_date
     ).strftime("%Y-%m-%d")
-
-    # ---------------------------------------------
-    # Find Agent 1 schedule row
-    # ---------------------------------------------
 
     agent_1_rows = updated_schedule.loc[
         (
@@ -250,10 +238,6 @@ def swap_agent_shifts(
             f"Multiple schedule rows found for "
             f"{agent_1} on {swap_date}."
         )
-
-    # ---------------------------------------------
-    # Find Agent 2 schedule row
-    # ---------------------------------------------
 
     agent_2_rows = updated_schedule.loc[
         (
@@ -280,10 +264,6 @@ def swap_agent_shifts(
     index_1 = agent_1_rows.index[0]
     index_2 = agent_2_rows.index[0]
 
-    # ---------------------------------------------
-    # Read current assignments
-    # ---------------------------------------------
-
     status_1 = str(
         updated_schedule.at[index_1, "status"]
     )
@@ -307,10 +287,6 @@ def swap_agent_shifts(
     shift_2 = str(
         updated_schedule.at[index_2, "shift"]
     )
-
-    # ---------------------------------------------
-    # Basic validation
-    # ---------------------------------------------
 
     if status_1 != "WORK":
         raise ValueError(
@@ -337,10 +313,6 @@ def swap_agent_shifts(
             "Both agents already have the same shift."
         )
 
-    # ---------------------------------------------
-    # Create audit columns if needed
-    # ---------------------------------------------
-
     if "previous_shift_code" not in updated_schedule.columns:
         updated_schedule["previous_shift_code"] = None
 
@@ -350,10 +322,6 @@ def swap_agent_shifts(
     if "assignment_type" not in updated_schedule.columns:
         updated_schedule["assignment_type"] = None
 
-    # ---------------------------------------------
-    # Store original assignments
-    # ---------------------------------------------
-
     updated_schedule.at[
         index_1,
         "previous_shift_code",
@@ -373,10 +341,6 @@ def swap_agent_shifts(
         index_2,
         "previous_shift",
     ] = shift_2
-
-    # ---------------------------------------------
-    # Perform swap
-    # ---------------------------------------------
 
     updated_schedule.at[
         index_1,
@@ -407,10 +371,6 @@ def swap_agent_shifts(
         index_2,
         "assignment_type",
     ] = "SHIFT_SWAP"
-
-    # ---------------------------------------------
-    # Validate rest period after swap
-    # ---------------------------------------------
 
     validation_1 = validate_agent_rest_period(
         updated_schedule,
@@ -434,10 +394,6 @@ def swap_agent_shifts(
             validation_2["message"]
         )
 
-    # ---------------------------------------------
-    # Build result
-    # ---------------------------------------------
-
     result = {
         "swap_applied": True,
         "date": swap_date,
@@ -460,4 +416,3 @@ def swap_agent_shifts(
     }
 
     return updated_schedule, result
-

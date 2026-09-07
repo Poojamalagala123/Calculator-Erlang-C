@@ -12,7 +12,7 @@ from app.config import MAX_WORKER_THREADS
 @dataclass
 class JobInfo:
     job_id: str
-    status: str  # "queued", "processing", "completed", "failed"
+    status: str
     progress: int = 0
     message: str = "Job queued"
     error: Optional[str] = None
@@ -93,5 +93,4 @@ class TaskManager:
                 error=str(exc),
             )
 
-# Global singleton task manager instance
 task_manager = TaskManager()

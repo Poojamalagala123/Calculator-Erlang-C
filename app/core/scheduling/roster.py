@@ -11,7 +11,7 @@ def build_monthly_agent_schedule(
     month: int,
     agent_count: int | None = None,
 ) -> tuple[pd.DataFrame, dict]:
-    
+
     requirements = build_shift_requirements(
         forecast=forecast,
         year=year,
@@ -184,4 +184,3 @@ def build_monthly_agent_schedule(
         "coverage": coverage.to_dict(orient="records"),
     }
     return schedule, summary
-

@@ -17,10 +17,8 @@ def create_app() -> FastAPI:
         version="4.1.0",
     )
 
-    # Mount static dashboard files
     application.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-    # Include routers
     application.include_router(health_router)
     application.include_router(v1_router)
 

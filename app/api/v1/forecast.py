@@ -152,7 +152,6 @@ async def stl_forecast_async(
 
         job_id = task_manager.create_job()
 
-        # Submit task to background worker thread pool
         task_manager.submit_task(
             job_id,
             run_stl_forecast_worker,

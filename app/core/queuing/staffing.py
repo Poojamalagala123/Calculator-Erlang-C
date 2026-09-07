@@ -44,7 +44,6 @@ def compute_interval_staffing(
     max_workers: int = 4,
 ) -> pd.DataFrame:
     metrics_rows = []
-    # Using cached evaluation; fast and thread-safe
     for row in future_df.itertuples(index=False):
         metrics_rows.append(
             _cached_required_agents(

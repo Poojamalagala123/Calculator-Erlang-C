@@ -8,7 +8,7 @@ def build_shift_requirements(
     year: int | None = None,
     month: int | None = None,
 ) -> pd.DataFrame:
-    
+
     if forecast.empty:
         raise ValueError("Forecast is empty.")
 
@@ -70,7 +70,7 @@ def calculate_schedule_headcount(
     shift_requirements: pd.DataFrame,
     working_days_per_week: int = 5,
 ) -> int:
-    
+
     if shift_requirements.empty:
         return 0
 
@@ -112,4 +112,3 @@ def calculate_schedule_headcount(
         )
 
     return required_headcount
-

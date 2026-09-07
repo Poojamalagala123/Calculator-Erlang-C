@@ -56,7 +56,6 @@ def build_stl_forecast(
             percent = 10 + int(30 * (index / total_files))
             progress_callback(percent, f"Reading and cleaning {filename} ({index + 1}/{total_files})...")
 
-        # Fast single-pass read & clean (avoids reading file twice)
         raw_frame = read_cdr_csv(path)
         raw_count = len(raw_frame)
         clean = preprocess_cdr(path, raw_frame=raw_frame)

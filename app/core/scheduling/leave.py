@@ -10,7 +10,7 @@ def mark_agent_leave(
     agent_id: str,
     leave_date: str,
 ) -> tuple[pd.DataFrame, dict]:
-    
+
     if schedule.empty:
         raise ValueError("Schedule is empty.")
 
@@ -64,10 +64,6 @@ def mark_agent_leave(
         schedule.at[row_index, "status"]
     )
 
-    # ---------------------------------------------
-    # Agent is already OFF
-    # ---------------------------------------------
-
     if current_shift_code == "OFF" or current_status == "OFF":
 
         return schedule, {
@@ -78,10 +74,6 @@ def mark_agent_leave(
             "original_shift": "OFF",
             "message": "Agent is already OFF on the selected date.",
         }
-
-    # ---------------------------------------------
-    # Agent is already on leave
-    # ---------------------------------------------
 
     if current_shift_code == "LEAVE" or current_status == "LEAVE":
 
@@ -104,19 +96,11 @@ def mark_agent_leave(
             "message": "Agent is already marked as LEAVE.",
         }
 
-    # ---------------------------------------------
-    # Create columns if they don't exist yet
-    # ---------------------------------------------
-
     if "original_shift_code" not in schedule.columns:
         schedule["original_shift_code"] = None
 
     if "original_shift" not in schedule.columns:
         schedule["original_shift"] = None
-
-    # ---------------------------------------------
-    # Save original shift before changing it
-    # ---------------------------------------------
 
     schedule.at[
         row_index,
@@ -127,10 +111,6 @@ def mark_agent_leave(
         row_index,
         "original_shift",
     ] = current_shift
-
-    # ---------------------------------------------
-    # Mark agent as LEAVE
-    # ---------------------------------------------
 
     schedule.at[
         row_index,
@@ -166,7 +146,7 @@ def calculate_leave_coverage(
     shift_requirements: pd.DataFrame,
     leave_result: dict,
 ) -> dict:
-    
+
     if schedule.empty:
         raise ValueError("Schedule is empty.")
 
@@ -186,10 +166,6 @@ def calculate_leave_coverage(
     agent_id = leave_result["agent_id"]
     leave_date = leave_result["leave_date"]
     original_shift_code = leave_result["original_shift_code"]
-
-    # ---------------------------------------------
-    # Find required staffing for this date + shift
-    # ---------------------------------------------
 
     requirements = shift_requirements.copy()
 
@@ -215,10 +191,6 @@ def calculate_leave_coverage(
         requirement_row.iloc[0]["required_agents"]
     )
 
-    # ---------------------------------------------
-    # Count agents currently working this shift
-    # ---------------------------------------------
-
     current_schedule = schedule.copy()
 
     current_schedule["date"] = (
@@ -239,10 +211,6 @@ def calculate_leave_coverage(
     ]
 
     assigned_agents = len(working_agents)
-
-    # ---------------------------------------------
-    # Calculate shortage
-    # ---------------------------------------------
 
     shortage = max(
         required_agents - assigned_agents,
@@ -284,7 +252,7 @@ def find_leave_replacement_candidates(
     leave_result: dict,
     max_working_days_per_week: int = 5,
 ) -> list[dict]:
-    
+
     if schedule.empty:
         raise ValueError("Schedule is empty.")
 
@@ -317,10 +285,6 @@ def find_leave_replacement_candidates(
         frame["date"]
     )
 
-    # -------------------------------------------------
-    # Calculate Monday-Sunday leave week
-    # -------------------------------------------------
-
     week_start = (
         leave_date
         - pd.Timedelta(
@@ -332,10 +296,6 @@ def find_leave_replacement_candidates(
         week_start
         + pd.Timedelta(days=6)
     )
-
-    # -------------------------------------------------
-    # Get all agents except leave agent
-    # -------------------------------------------------
 
     agents = sorted(
         agent
@@ -354,10 +314,6 @@ def find_leave_replacement_candidates(
             .astype(str)
             == agent
         ]
-
-        # ---------------------------------------------
-        # Find schedule on leave date
-        # ---------------------------------------------
 
         day_rows = agent_rows.loc[
             agent_rows["date"]
@@ -380,19 +336,11 @@ def find_leave_replacement_candidates(
             day_row["shift_code"]
         )
 
-        # ---------------------------------------------
-        # Only OFF agents can be selected
-        # ---------------------------------------------
-
         if (
             current_status != "OFF"
             or current_shift_code != "OFF"
         ):
             continue
-
-        # ---------------------------------------------
-        # Count unique working days in leave week
-        # ---------------------------------------------
 
         weekly_rows = agent_rows.loc[
             (
@@ -414,27 +362,15 @@ def find_leave_replacement_candidates(
             weekly_rows["date"].nunique()
         )
 
-        # ---------------------------------------------
-        # Calculate working days after cover
-        # ---------------------------------------------
-
         weekly_days_after_cover = (
             weekly_working_days + 1
         )
-
-        # ---------------------------------------------
-        # Reject if cover would exceed 5 days
-        # ---------------------------------------------
 
         if (
             weekly_days_after_cover
             > max_working_days_per_week
         ):
             continue
-
-        # ---------------------------------------------
-        # Count unique monthly working days
-        # ---------------------------------------------
 
         monthly_working_days = int(
             agent_rows.loc[
@@ -444,10 +380,6 @@ def find_leave_replacement_candidates(
                 "date",
             ].nunique()
         )
-
-        # ---------------------------------------------
-        # Add valid candidate
-        # ---------------------------------------------
 
         candidates.append(
             {
@@ -473,10 +405,6 @@ def find_leave_replacement_candidates(
             }
         )
 
-    # -------------------------------------------------
-    # Rank candidates fairly
-    # -------------------------------------------------
-
     candidates.sort(
         key=lambda item: (
             item[
@@ -499,7 +427,7 @@ def assign_leave_replacement(
     coverage_result: dict,
     candidates: list[dict],
 ) -> tuple[pd.DataFrame, dict]:
-   
+
     if schedule.empty:
         raise ValueError("Schedule is empty.")
 
@@ -542,10 +470,6 @@ def assign_leave_replacement(
         "original_shift"
     ]
 
-    # -------------------------------------------------
-    # Find replacement agent row
-    # -------------------------------------------------
-
     matching_rows = updated_schedule.loc[
         (
             updated_schedule["agent_id"].astype(str)
@@ -585,10 +509,6 @@ def assign_leave_replacement(
         ]
     )
 
-    # -------------------------------------------------
-    # Confirm agent is still OFF
-    # -------------------------------------------------
-
     if (
         current_status != "OFF"
         or current_shift_code != "OFF"
@@ -597,10 +517,6 @@ def assign_leave_replacement(
             f"{replacement_agent} is no longer "
             f"OFF on {leave_date}."
         )
-
-    # -------------------------------------------------
-    # Keep previous assignment for audit/history
-    # -------------------------------------------------
 
     if (
         "previous_shift_code"
@@ -636,10 +552,6 @@ def assign_leave_replacement(
         "previous_shift",
     ] = "OFF"
 
-    # -------------------------------------------------
-    # Assign replacement shift
-    # -------------------------------------------------
-
     updated_schedule.at[
         row_index,
         "shift_code",
@@ -660,10 +572,6 @@ def assign_leave_replacement(
         "assignment_type",
     ] = "LEAVE_COVER"
 
-    # -------------------------------------------------
-    # Validate rest period after assignment
-    # -------------------------------------------------
-
     rest_validation = validate_agent_rest_period(
         updated_schedule,
         replacement_agent,
@@ -674,10 +582,6 @@ def assign_leave_replacement(
         raise ValueError(
             rest_validation["message"]
         )
-
-    # -------------------------------------------------
-    # Build result
-    # -------------------------------------------------
 
     result = {
         "replacement_applied": True,
@@ -721,7 +625,7 @@ def find_safe_shift_transfer_candidates(
     shift_requirements: pd.DataFrame,
     leave_result: dict,
 ) -> list[dict]:
-   
+
     if schedule.empty:
         raise ValueError("Schedule is empty.")
 
@@ -754,11 +658,6 @@ def find_safe_shift_transfer_candidates(
         "original_shift"
     ]
 
-    # ---------------------------------------------
-    # Agents working on the leave date
-    # but not already in the target shift
-    # ---------------------------------------------
-
     working_rows = frame.loc[
         (frame["date"] == leave_date)
         & (frame["status"].astype(str) == "WORK")
@@ -784,10 +683,6 @@ def find_safe_shift_transfer_candidates(
             row.shift
         )
 
-        # -----------------------------------------
-        # Required staffing in source shift
-        # -----------------------------------------
-
         source_requirement = requirements.loc[
             (requirements["date"] == leave_date)
             & (
@@ -804,10 +699,6 @@ def find_safe_shift_transfer_candidates(
                 "required_agents"
             ]
         )
-
-        # -----------------------------------------
-        # Current agents in source shift
-        # -----------------------------------------
 
         source_working = frame.loc[
             (frame["date"] == leave_date)
@@ -833,17 +724,8 @@ def find_safe_shift_transfer_candidates(
             assigned_agents - required_agents
         )
 
-        # -----------------------------------------
-        # Reject if moving this agent creates
-        # a shortage in their original shift
-        # -----------------------------------------
-
         if assigned_after_move < required_agents:
             continue
-
-        # -----------------------------------------
-        # Monthly working days
-        # -----------------------------------------
 
         agent_rows = frame.loc[
             frame["agent_id"].astype(str)
@@ -873,13 +755,6 @@ def find_safe_shift_transfer_candidates(
             }
         )
 
-    # ---------------------------------------------
-    # Ranking:
-    # 1. shifts with more spare agents
-    # 2. agents with fewer monthly working days
-    # 3. agent id
-    # ---------------------------------------------
-
     candidates.sort(
         key=lambda item: (
             -item["source_spare_agents"],
@@ -895,7 +770,7 @@ def assign_safe_shift_transfer(
     leave_result: dict,
     transfer_candidates: list[dict],
 ) -> tuple[pd.DataFrame, dict]:
-    
+
     if schedule.empty:
         raise ValueError("Schedule is empty.")
 
@@ -914,10 +789,6 @@ def assign_safe_shift_transfer(
 
     agent_id = candidate["agent_id"]
     leave_date = leave_result["leave_date"]
-
-    # -------------------------------------------------
-    # Find transfer agent row
-    # -------------------------------------------------
 
     row = updated_schedule.loc[
         (
@@ -946,10 +817,6 @@ def assign_safe_shift_transfer(
 
     row_index = row.index[0]
 
-    # -------------------------------------------------
-    # Audit columns
-    # -------------------------------------------------
-
     if (
         "previous_shift_code"
         not in updated_schedule.columns
@@ -974,10 +841,6 @@ def assign_safe_shift_transfer(
             "assignment_type"
         ] = None
 
-    # -------------------------------------------------
-    # Store original shift
-    # -------------------------------------------------
-
     updated_schedule.at[
         row_index,
         "previous_shift_code",
@@ -987,10 +850,6 @@ def assign_safe_shift_transfer(
         row_index,
         "previous_shift",
     ] = candidate["source_shift"]
-
-    # -------------------------------------------------
-    # Move agent to leave shift
-    # -------------------------------------------------
 
     updated_schedule.at[
         row_index,
@@ -1016,10 +875,6 @@ def assign_safe_shift_transfer(
         "assignment_type",
     ] = "SHIFT_TRANSFER"
 
-    # -------------------------------------------------
-    # Validate rest period after transfer
-    # -------------------------------------------------
-
     rest_validation = validate_agent_rest_period(
         updated_schedule,
         agent_id,
@@ -1030,10 +885,6 @@ def assign_safe_shift_transfer(
         raise ValueError(
             rest_validation["message"]
         )
-
-    # -------------------------------------------------
-    # Build result
-    # -------------------------------------------------
 
     result = {
         "transfer_applied": True,
@@ -1086,16 +937,12 @@ def resolve_agent_leave(
     agent_id: str,
     leave_date: str,
 ) -> tuple[pd.DataFrame, dict]:
-    
+
     if schedule.empty:
         raise ValueError("Schedule is empty.")
 
     if shift_requirements.empty:
         raise ValueError("Shift requirements are empty.")
-
-    # -------------------------------------------------
-    # Step 1: Mark requested agent as leave
-    # -------------------------------------------------
 
     updated_schedule, leave_result = mark_agent_leave(
         schedule=schedule,
@@ -1103,19 +950,11 @@ def resolve_agent_leave(
         leave_date=leave_date,
     )
 
-    # -------------------------------------------------
-    # Step 2: Check coverage after leave
-    # -------------------------------------------------
-
     coverage_before = calculate_leave_coverage(
         schedule=updated_schedule,
         shift_requirements=shift_requirements,
         leave_result=leave_result,
     )
-
-    # -------------------------------------------------
-    # If agent was already OFF / no leave needed
-    # -------------------------------------------------
 
     if not leave_result.get("leave_required"):
 
@@ -1131,10 +970,6 @@ def resolve_agent_leave(
             ),
         }
 
-    # -------------------------------------------------
-    # If coverage is still okay after leave
-    # -------------------------------------------------
-
     if coverage_before.get("coverage_ok"):
 
         return updated_schedule, {
@@ -1148,10 +983,6 @@ def resolve_agent_leave(
                 "is still sufficient."
             ),
         }
-
-    # -------------------------------------------------
-    # Step 3: Try OFF-agent replacement
-    # -------------------------------------------------
 
     off_candidates = find_leave_replacement_candidates(
         schedule=updated_schedule,
@@ -1189,10 +1020,6 @@ def resolve_agent_leave(
                     f"{replacement_result['replacement_agent']}."
                 ),
             }
-
-    # -------------------------------------------------
-    # Step 4: Try safe shift transfer
-    # -------------------------------------------------
 
     transfer_candidates = find_safe_shift_transfer_candidates(
         schedule=updated_schedule,
@@ -1235,10 +1062,6 @@ def resolve_agent_leave(
                 ),
             }
 
-    # -------------------------------------------------
-    # Step 5: No safe option found
-    # -------------------------------------------------
-
     final_coverage = calculate_leave_coverage(
         schedule=updated_schedule,
         shift_requirements=shift_requirements,
@@ -1257,4 +1080,3 @@ def resolve_agent_leave(
             "candidate was available."
         ),
     }
-

@@ -13,7 +13,6 @@ def read_cdr_csv(file_path: str | Path) -> pd.DataFrame:
     last_error: Exception | None = None
     for kwargs in attempts:
         try:
-            # Try high-speed C engine first; fallback to python engine if needed
             try:
                 frame = pd.read_csv(
                     file_path,

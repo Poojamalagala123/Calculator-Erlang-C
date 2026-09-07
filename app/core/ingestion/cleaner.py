@@ -52,7 +52,6 @@ def preprocess_cdr(
         errors="coerce",
     )
 
-    # Vectorized fast duration parsing
     parts = frame["duration"].astype(str).str.strip().str.split(":", expand=True)
     if parts.shape[1] == 3:
         h = pd.to_numeric(parts[0], errors="coerce")
