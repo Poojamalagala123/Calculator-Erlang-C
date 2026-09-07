@@ -447,7 +447,7 @@ def build_stl_forecast(
     ])
     forecast = pd.concat([future.drop(columns=["slot"]).reset_index(drop=True), metrics], axis=1)
     forecast["date"] = forecast["interval_start"].dt.strftime("%Y-%m-%d")
-    forecast["day_of_year"] = forecast["interval_start"].dt.normalize().factorize()[0] + 1
+    forecast["day_of_year"] = forecast["interval_start"].dt.dayofyear
     forecast["month"] = forecast["interval_start"].dt.month
     forecast["day"] = forecast["interval_start"].dt.day
     forecast["weekday"] = forecast["interval_start"].dt.dayofweek
