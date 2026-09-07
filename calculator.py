@@ -746,6 +746,13 @@ def build_monthly_agent_schedule(
     weekly_workdays = defaultdict(lambda: defaultdict(int))
     worked_dates = defaultdict(set)
 
+    # Track each agent's most recent shift end so the initial roster
+    # also respects the minimum rest period. Using an actual timestamp
+    # (rather than only checking the previous calendar day) means an
+    # agent who next works two or more days later is handled correctly.
+    last_shift_end = {}
+    minimum_rest_hours = 8
+
     schedule_rows = []
     coverage_rows = []
 
@@ -763,12 +770,29 @@ def build_monthly_agent_schedule(
 
         required = int(requirement.required_agents)
 
-        candidates = [
-            agent
-            for agent in agents
-            if date_value.date() not in worked_dates[agent]
-            and weekly_workdays[agent][week_start] < 5
-        ]
+        target_shift_start = date_value + pd.Timedelta(
+            hours=int(requirement.start_hour)
+        )
+        target_shift_end = date_value + pd.Timedelta(
+            hours=int(requirement.end_hour)
+        )
+
+        candidates = []
+        for agent in agents:
+            if date_value.date() in worked_dates[agent]:
+                continue
+            if weekly_workdays[agent][week_start] >= 5:
+                continue
+
+            previous_end = last_shift_end.get(agent)
+            if previous_end is not None:
+                rest_hours = (
+                    target_shift_start - previous_end
+                ).total_seconds() / 3600
+                if rest_hours < minimum_rest_hours:
+                    continue
+
+            candidates.append(agent)
 
         candidates.sort(
             key=lambda agent: (
@@ -797,6 +821,7 @@ def build_monthly_agent_schedule(
             shift_assignments[agent][requirement.shift_code] += 1
             weekly_workdays[agent][week_start] += 1
             worked_dates[agent].add(date_value.date())
+            last_shift_end[agent] = target_shift_end
 
         assigned = len(selected_agents)
 
