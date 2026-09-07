@@ -107,7 +107,22 @@ def build_stl_forecast(
         progress_callback(55, "Running STL seasonal-trend decomposition...")
 
     call_series = historical["call_volume"].astype(float)
-    decomposition = STL(call_series, period=resolved_period, robust=True).fit()
+    seasonal_len = 7
+    trend_len = int(np.ceil(1.5 * resolved_period / (1 - 1.5 / seasonal_len)))
+    if trend_len % 2 == 0:
+        trend_len += 1
+    trend_jump = max(1, int(np.ceil(trend_len / 10)))
+    low_pass_jump = max(1, int(np.ceil(resolved_period / 10)))
+
+    decomposition = STL(
+        call_series,
+        period=resolved_period,
+        seasonal=seasonal_len,
+        seasonal_jump=1,
+        trend_jump=trend_jump,
+        low_pass_jump=low_pass_jump,
+        robust=True,
+    ).fit()
 
     horizon = forecast_days * intervals_per_day
     lookback = min(len(decomposition.trend), trend_lookback_days * intervals_per_day)
