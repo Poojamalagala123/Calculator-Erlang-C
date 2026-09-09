@@ -556,6 +556,10 @@
             <div class="chart-box">
                 <h2>Average calls by time</h2>
 
+                <p id="timeChartSelection" class="note">
+                    Select a month and weekday to view calls for a specific date.
+                </p>
+
                 <div class="chart-container">
                     <canvas id="timeChart"></canvas>
                 </div>
@@ -900,6 +904,10 @@
 
     let forecastRows = [];
 
+    let selectedMonth = null;
+
+    let selectedWeekday = null;
+
     let scheduleRows = [];
 
     let scheduleSummary = null;
@@ -973,7 +981,8 @@
         type,
         labels,
         datasets,
-        yTitle
+        yTitle,
+        onClick
     ) {
 
         const chart =
@@ -998,6 +1007,8 @@
                             mode: "index",
                             intersect: false
                         },
+
+                        onClick,
 
                         plugins: {
                             legend: {
@@ -1173,7 +1184,20 @@
                     )
                 }
             ],
-            "Calls"
+            "Calls",
+            (_event, elements) => {
+                if (!elements.length) {
+                    return;
+                }
+
+                const selected = monthly[elements[0].index];
+                if (!selected) {
+                    return;
+                }
+
+                selectedMonth = Number(selected.month_number);
+                renderCharts(chartData);
+            }
         );
 
         const weekday =
@@ -1193,24 +1217,56 @@
                     )
                 }
             ],
-            "Calls"
+            "Calls",
+            (_event, elements) => {
+                if (!elements.length) {
+                    return;
+                }
+
+                const selected = weekday[elements[0].index];
+                if (!selected) {
+                    return;
+                }
+
+                selectedWeekday = selected.weekday_name;
+                renderCharts(chartData);
+            }
         );
 
         const time =
             chartData.time_of_day || [];
 
+        const selectedDate = getSelectedDate();
+        const selectedDateRows = selectedDate
+            ? forecastRows
+                .filter(row => row.date === selectedDate)
+                .sort((left, right) => left.interval_start.localeCompare(right.interval_start))
+            : [];
+        const timeRows = selectedDateRows.length
+            ? selectedDateRows.map(row => ({
+                time_label: row.interval_start.slice(11, 16),
+                call_volume: row.call_volume
+            }))
+            : time.map(row => ({
+                time_label: row.time_label,
+                call_volume: row.average_calls
+            }));
+
+        const selectionElement = document.getElementById("timeChartSelection");
+        selectionElement.textContent = selectedDate
+            ? `Showing calls for ${selectedDate} (${selectedWeekday}).`
+            : selectedMonth || selectedWeekday
+                ? "Select both a month and weekday to view calls for a specific date."
+                : "Select a month and weekday to view calls for a specific date.";
+
         makeChart(
             "timeChart",
             "line",
-            time.map(
-                x => x.time_label
-            ),
+            timeRows.map(row => row.time_label),
             [
                 {
-                    label: "Average calls",
-                    data: time.map(
-                        x => x.average_calls
-                    ),
+                    label: selectedDate ? "Calls" : "Average calls",
+                    data: timeRows.map(row => row.call_volume),
                     borderWidth: 2,
                     pointRadius: 1
                 }
@@ -1218,6 +1274,25 @@
             "Calls"
         );
 
+    }
+
+    function getSelectedDate() {
+        if (selectedMonth === null || selectedWeekday === null) {
+            return null;
+        }
+
+        const matchingDates = [
+            ...new Set(
+                forecastRows
+                    .filter(row =>
+                        Number(row.month) === selectedMonth
+                        && row.weekday_name === selectedWeekday
+                    )
+                    .map(row => row.date)
+            )
+        ].sort();
+
+        return matchingDates[0] || null;
     }
 
     function renderTable(rows) {
@@ -1560,6 +1635,9 @@
 
                 forecastRows =
                     data.forecast || [];
+
+                selectedMonth = null;
+                selectedWeekday = null;
 
                 renderSummary(data);
 

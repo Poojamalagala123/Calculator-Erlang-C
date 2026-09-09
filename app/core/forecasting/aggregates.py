@@ -60,7 +60,7 @@ def build_dashboard_aggregates(forecast: pd.DataFrame) -> dict:
         return df.round(2).where(pd.notna(df), None).to_dict(orient="records")
 
     return {
-        "monthly": records(monthly.drop(columns=["month_number"])),
+        "monthly": records(monthly),
         "daily": records(daily),
         "weekday": records(weekday),
         "time_of_day": records(time_of_day),
