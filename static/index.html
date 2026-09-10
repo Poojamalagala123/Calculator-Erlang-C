@@ -632,7 +632,7 @@
 
             <p class="note">
                 The table displays intervals for the selected date. Calls are summed; AHT and service level are call-weighted averages. Agent counts show the peak requirement in each interval.
-                Download Forecast CSV contains all forecast intervals.
+                Download Forecast CSV contains the full forecast year at 1-hour intervals with these same columns.
             </p>
 
             <table class="forecast-table">
@@ -730,7 +730,7 @@
                     type="button"
                     disabled
                 >
-                    Download Schedule CSV
+                    Download Yearly Roster CSV
                 </button>
 
             </div>
@@ -917,6 +917,8 @@
 
             <h2>Agent Monthly Roster</h2>
 
+            <div id="rosterWeekSelector" class="week-selector" role="group" aria-label="Roster week filter"></div>
+
             <p class="note">
                 Each row represents one agent.
                 Each column represents one calendar day.
@@ -980,6 +982,9 @@
     let scheduleRows = [];
 
     let scheduleSummary = null;
+    const monthlyRosterCache = new Map();
+    let rosterAgentCount = null;
+    let rosterExportRunning = false;
 
     const schedulePanel =
         document.getElementById("schedulePanel");
@@ -1617,14 +1622,7 @@
         }
         groupTableIntervals(filteredRows, intervalMinutes).forEach(row => {
             const tr = document.createElement("tr");
-            const values = [
-                row.interval_label,
-                row.call_volume,
-                row.aht_seconds.toFixed(2),
-                row.raw_agents,
-                row.scheduled_agents,
-                row.service_level_percent.toFixed(2)
-            ];
+            const values = forecastTableValues(row);
             values.forEach(value => {
                 const td = document.createElement("td");
                 td.textContent = value;
@@ -1642,6 +1640,28 @@
         renderTable(forecastRows);
     });
 
+    function forecastTableValues(row) {
+        return [row.interval_label, row.call_volume, row.aht_seconds.toFixed(2),
+            row.raw_agents, row.scheduled_agents, row.service_level_percent.toFixed(2)];
+    }
+
+    function rosterDateLabel(date) {
+        const parsed = new Date(`${date}T00:00:00`);
+        return `${String(parsed.getDate()).padStart(2, "0")} ${parsed.toLocaleDateString(undefined, { weekday: "short" })}`;
+    }
+
+    function downloadCsv(rows, filename) {
+        const csv = rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
+        const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
     function csvEscape(value) {
 
         const text =
@@ -1649,70 +1669,20 @@
                 ? ""
                 : String(value);
 
-        return /[",\n]/.test(text)
+        return /[",\r\n]/.test(text)
             ? `"${text.replaceAll('"', '""')}"`
             : text;
 
     }
 
-    downloadButton.addEventListener(
-        "click",
-        () => {
-
-            if (!forecastRows.length) {
-                return;
-            }
-
-            const headers =
-                Object.keys(
-                    forecastRows[0]
-                );
-
-            const csv = [
-
-                headers.join(","),
-
-                ...forecastRows.map(
-                    row =>
-                        headers
-                            .map(
-                                header =>
-                                    csvEscape(
-                                        row[header]
-                                    )
-                            )
-                            .join(",")
-                )
-
-            ].join("\n");
-
-            const blob =
-                new Blob(
-                    [csv],
-                    {
-                        type:
-                            "text/csv;charset=utf-8"
-                    }
-                );
-
-            const url =
-                URL.createObjectURL(blob);
-
-            const link =
-                document.createElement("a");
-
-            link.href =
-                url;
-
-            link.download =
-                `stl_erlang_forecast.csv`;
-
-            link.click();
-
-            URL.revokeObjectURL(url);
-
-        }
-    );
+    downloadButton.addEventListener("click", () => {
+        if (!forecastRows.length) return;
+        const year = String(schedulePanel.dataset.outputYear || forecastRows[0].interval_start.slice(0, 4));
+        const rows = forecastRows.filter(row => row.interval_start.slice(0, 4) === year);
+        const headers = [...document.querySelectorAll(".forecast-table thead th")].map(th => th.textContent.trim());
+        downloadCsv([headers, ...groupTableIntervals(rows, 60).map(forecastTableValues)],
+            `stl_erlang_forecast_${year}_hourly.csv`);
+    });
 
     form.addEventListener(
         "submit",
@@ -1820,6 +1790,8 @@
             scheduleRows = [];
 
             scheduleSummary = null;
+            monthlyRosterCache.clear();
+            rosterAgentCount = null;
 
             downloadScheduleButton.disabled =
                 true;
@@ -1986,7 +1958,53 @@
 
     }
 
+    let selectedRosterWeek = "all";
+    let rosterFilterMonth = "";
+
+    function renderRosterWeekFilter(rows) {
+        const container = document.getElementById("rosterWeekSelector");
+        container.replaceChildren();
+        const month = rows.length ? rows[0].date.slice(0, 7) : "";
+        if (month !== rosterFilterMonth) {
+            selectedRosterWeek = "all";
+            rosterFilterMonth = month;
+        }
+        if (!month) return null;
+
+        const [year, monthNumber] = month.split("-").map(Number);
+        const weeks = getMonthWeeks(year, monthNumber);
+        if (selectedRosterWeek !== "all" && !weeks[selectedRosterWeek - 1]) {
+            selectedRosterWeek = "all";
+        }
+        const options = [{ value: "all", label: "Whole month" }];
+        weeks.forEach(week => {
+            options.push({
+                value: week.weekNumber,
+                label: `Week ${week.weekNumber}`
+            });
+        });
+        options.forEach(option => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = `week-btn${selectedRosterWeek === option.value ? " active" : ""}`;
+            button.textContent = option.label;
+            button.dataset.week = option.value;
+            button.setAttribute("aria-pressed", String(selectedRosterWeek === option.value));
+            button.addEventListener("click", () => {
+                selectedRosterWeek = option.value;
+                renderAgentSchedule(scheduleRows);
+                container.querySelector(`[data-week="${option.value}"]`).focus();
+            });
+            container.appendChild(button);
+        });
+        return selectedRosterWeek === "all"
+            ? null
+            : new Set(Object.values(weeks[selectedRosterWeek - 1].days));
+    }
+
     function renderAgentSchedule(rows) {
+        if (rows.length) monthlyRosterCache.set(rows[0].date.slice(0, 7), rows);
+        const visibleDates = renderRosterWeekFilter(rows);
 
         const container =
             document.getElementById(
@@ -2021,7 +2039,7 @@
                         row => row.date
                     )
                 )
-            ].sort();
+            ].sort().filter(date => !visibleDates || visibleDates.has(date));
 
         const scheduleMap =
             new Map();
@@ -2075,29 +2093,7 @@
                         "th"
                     );
 
-                const parsed =
-                    new Date(
-                        `${date}T00:00:00`
-                    );
-
-                const dayNumber =
-                    String(
-                        parsed.getDate()
-                    ).padStart(
-                        2,
-                        "0"
-                    );
-
-                const weekday =
-                    parsed.toLocaleDateString(
-                        undefined,
-                        {
-                            weekday: "short"
-                        }
-                    );
-
-                th.textContent =
-                    `${dayNumber} ${weekday}`;
+                th.textContent = rosterDateLabel(date);
 
                 headerRow.appendChild(
                     th
@@ -2109,7 +2105,9 @@
         const totalHeader = document.createElement("th");
         totalHeader.textContent = "Total shifts";
         totalHeader.scope = "col";
-        totalHeader.title = "Working shifts in this month, excluding days off and leave";
+        totalHeader.title = selectedRosterWeek === "all"
+            ? "Working shifts in this month, excluding days off and leave"
+            : "Working shifts in the selected week, excluding days off and leave";
         headerRow.appendChild(totalHeader);
 
         thead.appendChild(
@@ -2533,6 +2531,7 @@
                 populateSwapAgents();
                 updateSwapDateRange(year, month);
 
+                rosterAgentCount = payload.agent_count ?? null;
                 scheduleSummary =
                     data.summary;
 
@@ -2540,6 +2539,7 @@
                     scheduleSummary
                 );
 
+                selectedRosterWeek = "all";
                 renderAgentSchedule(
                     scheduleRows
                 );
@@ -2797,101 +2797,70 @@
         }
     });
 
-    downloadScheduleButton.addEventListener(
-        "click",
-        () => {
+    function rosterCsvSection(rows, year, month) {
+        const monthLabel = new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+        const dates = [...new Set(rows.map(row => row.date))].sort();
+        const agents = [...new Set(rows.map(row => row.agent_id))];
+        const cells = new Map(rows.map(row => [`${row.agent_id}|${row.date}`, row]));
+        return [
+            [`Agent Monthly Roster - ${monthLabel}`],
+            ["Agent", ...dates.map(rosterDateLabel), "Total shifts"],
+            ...agents.map(agent => {
+                const shifts = dates.map(date => cells.get(`${agent}|${date}`));
+                return [agent, ...shifts.map(row => row?.shift || "OFF"),
+                    shifts.reduce((total, row) => total + (row?.status === "WORK" ? 1 : 0), 0)];
+            })
+        ];
+    }
 
-            if (!scheduleRows.length) {
-                return;
+    downloadScheduleButton.addEventListener("click", async () => {
+        if (!scheduleRows.length || rosterExportRunning) return;
+        const year = Number(scheduleRows[0].date.slice(0, 4));
+        const exportForecast = forecastRows;
+        const agentCount = rosterAgentCount;
+        const originalLabel = downloadScheduleButton.textContent;
+        rosterExportRunning = true;
+        downloadScheduleButton.disabled = true;
+        scheduleStatus.className = "status";
+        try {
+            for (let month = 1; month <= 12; month++) {
+                const key = `${year}-${String(month).padStart(2, "0")}`;
+                if (monthlyRosterCache.has(key)) continue;
+                downloadScheduleButton.textContent = `Preparing month ${month}/12...`;
+                scheduleStatus.textContent = `Preparing yearly roster: month ${month} of 12...`;
+                const forecast = exportForecast.filter(row => row.interval_start.slice(0, 7) === key);
+                if (!forecast.length) throw new Error(`No forecast available for ${key}. Generate a full-year forecast first.`);
+                const response = await fetch("/api/v1/schedule/monthly", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ forecast, year, month, agent_count: agentCount })
+                });
+                const data = await response.json();
+                if (forecastRows !== exportForecast) throw new Error("Forecast changed during export. Generate a roster and download again.");
+                if (!response.ok) throw new Error(`Cannot generate ${key}: ${typeof data.detail === "string" ? data.detail : "Schedule generation failed."}`);
+                if (!data.schedule?.length) throw new Error(`No roster returned for ${key}.`);
+                // Preserve any edits made in the dashboard while this request was running.
+                if (!monthlyRosterCache.has(key)) monthlyRosterCache.set(key, data.schedule);
             }
-
-            const headers = [
-
-                "agent_id",
-
-                "date",
-
-                "weekday",
-
-                "shift_code",
-
-                "shift",
-
-                "status",
-
-                "original_shift_code",
-
-                "original_shift",
-
-                "previous_shift_code",
-
-                "previous_shift",
-
-                "assignment_type"
-
-            ];
-
-            const csv = [
-
-                headers.join(","),
-
-                ...scheduleRows.map(
-                    row =>
-                        headers
-                            .map(
-                                header =>
-                                    csvEscape(
-                                        row[header]
-                                    )
-                            )
-                            .join(",")
-                )
-
-            ].join("\n");
-
-            const blob =
-                new Blob(
-                    [csv],
-                    {
-                        type:
-                            "text/csv;charset=utf-8"
-                    }
-                );
-
-            const url =
-                URL.createObjectURL(
-                    blob
-                );
-
-            const link =
-                document.createElement(
-                    "a"
-                );
-
-            const month =
-                Number(
-                    document.getElementById(
-                        "scheduleMonth"
-                    ).value
-                );
-
-            const year =
-                schedulePanel.dataset.outputYear;
-
-            link.href =
-                url;
-
-            link.download =
-                `agent_schedule_${year}_${String(month).padStart(2, "0")}.csv`;
-
-            link.click();
-
-            URL.revokeObjectURL(
-                url
-            );
-
+            if (forecastRows !== exportForecast) throw new Error("Forecast changed during export. Generate a roster and download again.");
+            const csvRows = [];
+            for (let month = 1; month <= 12; month++) {
+                if (month > 1) csvRows.push([]);
+                const key = `${year}-${String(month).padStart(2, "0")}`;
+                csvRows.push(...rosterCsvSection(monthlyRosterCache.get(key), year, month));
+            }
+            downloadCsv(csvRows, `agent_roster_${year}.csv`);
+            scheduleStatus.className = "status success";
+            scheduleStatus.textContent = `Downloaded ${year} roster with 12 monthly tables.`;
+        } catch (error) {
+            scheduleStatus.className = "status error";
+            scheduleStatus.textContent = error.message;
+        } finally {
+            rosterExportRunning = false;
+            downloadScheduleButton.textContent = originalLabel;
+            downloadScheduleButton.disabled = !scheduleRows.length;
         }
-    );
+    });
 
 </script>
 

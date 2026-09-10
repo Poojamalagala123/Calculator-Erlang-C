@@ -1,846 +1,353 @@
-# CDR STL Forecast & Agent Scheduling API
+# CDR STL Forecast & Agent Scheduling
 
-FastAPI application for contact-centre demand forecasting and workforce scheduling.
+FastAPI application for forecasting contact-centre call demand from historical CDR files, calculating Erlang C staffing, and generating monthly agent rosters.
 
-The application uses historical CDR (Call Detail Record) files to forecast future call demand with STL decomposition, calculates interval-level Erlang C staffing requirements, builds monthly 24x7 agent schedules, processes agent leave, and supports safe shift swaps.
+**Application version:** `4.1.0`
 
-**Version:** `4.0.0`  
-**Default local URL:** `http://127.0.0.1:8000`
+**Local dashboard:** `http://127.0.0.1:8000/`
 
-## Main workflow
+The browser submits a background forecast job, displays progress and charts, builds monthly schedules, and supports leave replacements, shift swaps, and yearly CSV downloads. [API documentation](api_documentation.md) contains endpoint examples and response details.
 
-```text
-Historical CDR CSV file(s)
-        ↓
-CDR validation and cleaning
-        ↓
-Continuous interval dataset
-        ↓
-STL decomposition forecast
-        ↓
-Forecasted call volume + AHT
-        ↓
-Erlang C staffing requirements
-        ↓
-Dashboard summaries/charts
-        ↓
-Monthly agent schedule
-        ↓
-Leave management
-        ↓
-Shift swap management
-```
+## Quick start
 
-The old standalone AHT, traffic, Erlang-output, required-agent, single-CDR forecast, and calendar-average/multi-dataset-average API endpoints are not part of the current public API.
-
-## Features
-
-- Upload one or more full-year historical CDR datasets.
-- Clean invalid/unwanted CDR rows before forecasting.
-- Forecast future call volume using robust STL decomposition.
-- Use weekly seasonality by default.
-- Extrapolate recent trend using linear regression.
-- Estimate AHT for future intervals from historical weekday/time-slot behaviour.
-- Calculate Erlang C traffic and required staffing for every forecast interval.
-- Apply shrinkage to produce scheduled-agent requirements.
-- Generate monthly, daily, weekday, and time-of-day dashboard aggregates.
-- Convert interval staffing into three 8-hour shifts.
-- Generate a monthly roster with one shift per agent per day and a five-day weekly work limit.
-- Handle leave by checking coverage and automatically attempting safe replacement.
-- Support shift swaps between two working agents.
-- Enforce a minimum 8-hour rest period around leave-cover, shift-transfer, and shift-swap operations.
-- Serve a static browser dashboard from `static/index.html` when available.
-- Provide Swagger UI, ReDoc, and OpenAPI documentation automatically through FastAPI.
-
-## Project structure
-
-```text
-project/
-├── api.py                 # FastAPI routes and request/response handling
-├── calculator.py          # CDR, STL, Erlang C, scheduling, leave, and swap logic
-├── requirements.txt       # Python dependencies
-└── static/
-    └── index.html         # Frontend dashboard
-```
-
-## Requirements
-
-Python 3.10 or later is recommended.
-
-Current Python dependencies:
-
-```text
-pandas>=2.0
-pyworkforce>=0.5.1
-fastapi>=0.110
-uvicorn[standard]>=0.27
-python-multipart>=0.0.9
-statsmodels>=0.14
-numpy>=1.24
-```
-
-## Installation
-
-Create and activate a virtual environment, then install the dependencies.
-
-### Linux / macOS
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+Use Python 3.10 or later. Dependencies are listed in [requirements.txt](requirements.txt): pandas, NumPy, statsmodels, pyworkforce, FastAPI, Uvicorn, and python-multipart. There is no frontend build step.
 
 ### Windows PowerShell
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
 ```
 
-## Run the application
-
-From the directory containing `api.py`:
+### Linux / macOS
 
 ```bash
-uvicorn api:app --reload
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
 ```
 
-Production-style example:
+Run commands from the repository root. The compatibility entry point `python -m uvicorn api:app --reload` also works.
 
-```bash
-uvicorn api:app --host 0.0.0.0 --port 8000
-```
+| URL | Purpose |
+|---|---|
+| `/` | Dashboard |
+| `/health` | Health and application version |
+| `/docs` | Swagger UI |
+| `/redoc` | ReDoc |
+| `/openapi.json` | Generated OpenAPI schema |
 
-Open:
+The dashboard loads Chart.js from jsDelivr. The application creates `static/` and `logs/` when needed and requires write access for logs and temporary uploads.
 
-- Dashboard: `http://127.0.0.1:8000/`
-- Swagger UI: `http://127.0.0.1:8000/docs`
-- ReDoc: `http://127.0.0.1:8000/redoc`
-- OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`
-
-## Public API endpoints
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/` | Serve `static/index.html` when present; otherwise return service information |
-| `GET` | `/health` | Health/version check |
-| `POST` | `/api/v1/cdr/stl-forecast` | Build STL demand forecast and Erlang C staffing forecast |
-| `POST` | `/api/v1/schedule/monthly` | Generate a monthly agent roster from forecast staffing |
-| `POST` | `/api/v1/schedule/leave` | Apply leave and attempt to resolve resulting staffing shortage |
-| `POST` | `/api/v1/schedule/swap` | Swap two agents' shifts subject to validation |
-
----
-
-# CDR input format
-
-The CDR reader expects seven columns in this order:
-
-| Position | Column | Meaning |
-|---:|---|---|
-| 1 | `source` | Calling/source identifier |
-| 2 | `destination` | Destination identifier |
-| 3 | `call_datetime` | Date and time of the call |
-| 4 | `duration` | Call duration in `HH:MM:SS` |
-| 5 | `disposition` | Call disposition such as `Answered` |
-| 6 | `unique_id` | Unique call identifier |
-| 7 | `caller_id` | Caller identifier |
-
-The file is read without a header row. The application tries these formats in order:
-
-1. UTF-16, tab separated
-2. UTF-8 with BOM, comma separated
-3. Latin-1, comma separated
-
-### Required date/time format
-
-`call_datetime` is parsed using:
+## Project structure
 
 ```text
-YYYY-Mon-DD HH:MM:SS AM/PM
+Calculator-Erlang-C/
+|-- api.py                         # Compatibility entry point
+|-- calculator.py                  # Compatibility exports from app.core
+|-- app/
+|   |-- main.py                    # App setup, routers, static files, request logging
+|   |-- config.py                  # Paths and application limits
+|   |-- logger.py                  # Console and daily rotating file logs
+|   |-- api/
+|   |   |-- health.py              # Dashboard and health routes
+|   |   `-- v1/                    # Forecast, schedule, and job routes
+|   |-- schemas/                   # Pydantic models; routes define actual responses
+|   |-- core/
+|   |   |-- constants.py           # CDR fields, forecast fields, shift definitions
+|   |   |-- ingestion/             # CDR parsing, cleaning, interval construction
+|   |   |-- forecasting/           # STL forecast and dashboard aggregates
+|   |   |-- queuing/               # Erlang C calculations and staffing cache
+|   |   `-- scheduling/           # Monthly rosters, leave, swaps, rest validation
+|   `-- workers/                   # In-memory jobs and background forecast worker
+|-- static/index.html              # Dashboard, filters, and CSV generation
+|-- requirements.txt
+|-- api_documentation.md
+|-- Forecast_Comparison.ipynb       # Forecast exploration notebook
+|-- refactor.md                    # Refactoring notes
+|-- .postman/                      # Postman workspace metadata
+`-- postman/                       # Local Postman resources
 ```
 
-Example:
+## Dashboard workflow
 
-```text
-2025-Jan-15 09:42:11 AM
-```
-
-Rows whose date cannot be parsed are removed during cleaning.
-
-### Duration format
-
-Duration must be:
-
-```text
-HH:MM:SS
-```
-
-Examples:
-
-```text
-00:03:12
-00:17:45
-01:05:10
-```
-
-Invalid durations are removed.
-
-## CDR cleaning rules
-
-Before forecasting, the application keeps only records that satisfy all of the following:
-
-- `call_datetime` parses successfully.
-- `duration` parses successfully.
-- `source` is present and non-empty.
-- `destination` is present and non-empty.
-- `destination`, case-insensitively, is not `s`.
-- disposition is `Answered` by default.
-- duration is at least 1 second by default.
-- duration is at most 4 hours by default.
-
-The cleaned data is sorted chronologically.
-
-Each uploaded dataset must contain at least one valid answered record after cleaning.
-
-## Historical-year validation
-
-Each uploaded CDR file must contain exactly one unique calendar year after cleaning.
-
-Examples:
-
-- A file containing only 2024 records: valid.
-- A file containing both 2023 and 2024 records: rejected.
-- Two uploaded files that both contain 2024: rejected as a duplicate year.
-
-The forecast output year is:
-
-```text
-latest historical year + 1
-```
-
-For example, historical files for 2022, 2023, and 2024 produce a forecast beginning in 2025.
-
----
-
-# STL forecasting
-
-Endpoint:
-
-```text
-POST /api/v1/cdr/stl-forecast
-```
-
-Content type:
-
-```text
-multipart/form-data
-```
+1. Upload historical CDR files, one calendar year per file.
+2. Set **Target answer seconds** and **Target service level %**, then select **Create STL forecast**.
+3. Wait for the background job. Review summaries and monthly, weekday, and time-of-day charts.
+4. Select a date and table interval to inspect staffing. Download the hourly forecast for the whole output year.
+5. Select a schedule month and optionally enter **Available agent count**. Leave it blank for automatic minimum-headcount estimation, then select **Generate Monthly Schedule**.
+6. View the whole roster or filter by calendar week. Apply leave with a selected replacement, or swap two agents' shifts.
+7. Select **Download Yearly Roster CSV** to export 12 monthly tables, generating missing months as needed.
 
 ## STL inputs
 
-| Field | Type | Default | Validation / meaning |
-|---|---|---:|---|
-| `files` | repeated uploaded file | required | One or more full-year CDR files |
-| `interval_minutes` | integer | `30` | Must be positive and divide 1440 exactly |
-| `forecast_days` | integer | `365` | Must be greater than 0 |
-| `seasonal_period` | integer or null | automatic | If supplied, must be at least 2; value is in intervals, not days |
-| `trend_lookback_days` | integer | `90` | Must be at least 7 |
-| `target_seconds` | number | `20` | Erlang C answer-time target; must be non-negative |
-| `target_service_level` | number/percent | `80` | Must resolve to a value strictly between 0% and 100% |
-| `shrinkage` | number/percent | `30` | Must be >= 0% and < 100% |
-| `max_agents` | integer | `1000` | Must be > 0; forecast fails if calculated staffing exceeds it |
-| `include_forecast_rows` | boolean | `true` | If false, summary/charts are returned but the interval `forecast` array is empty |
+### Inputs exposed by the dashboard
 
-### Interval validation
+The forecast form exposes these three inputs. Other forecasting parameters are supplied by the browser or use the API default.
 
-`interval_minutes` must be a positive divisor of 1440. Examples of valid values include:
-
-```text
-5, 10, 15, 20, 30, 60, 120, 240, 480
-```
-
-A value such as `35` is rejected because 1440 is not evenly divisible by 35.
-
-## How the historical interval series is built
-
-For every uploaded year, the application:
-
-1. reads and cleans the CDR file;
-2. confirms that it contains exactly one calendar year;
-3. rejects duplicate years;
-4. groups calls into fixed time intervals;
-5. calculates interval call volume;
-6. calculates total handle time;
-7. calculates interval AHT as total handle time divided by call volume;
-8. rebuilds a complete continuous interval grid, including intervals with zero calls; and
-9. removes February 29 before the historical years are concatenated.
-
-For empty intervals, call volume and total handle time are zero. AHT remains missing for those intervals until later historical-slot logic supplies forecast AHT values.
-
-## STL seasonal period
-
-The default STL seasonal period is one week:
-
-```text
-intervals_per_day = 1440 / interval_minutes
-seasonal_period = intervals_per_day × 7
-```
-
-At the default 30-minute interval:
-
-```text
-48 intervals/day × 7 days = 336 intervals
-```
-
-The application requires at least two complete seasonal cycles of historical interval data.
-
-For a default 30-minute weekly cycle, that means at least:
-
-```text
-336 × 2 = 672 historical intervals
-```
-
-## What STL does
-
-The historical `call_volume` series is decomposed using robust STL into:
-
-- trend;
-- seasonal component; and
-- residual component.
-
-The future forecast is created by:
-
-1. taking the most recent trend section defined by `trend_lookback_days`;
-2. fitting a straight line to that trend using linear regression;
-3. extrapolating the trend for the forecast horizon;
-4. taking the final STL seasonal cycle;
-5. repeating that seasonal cycle through the future horizon;
-6. adding projected trend and repeated seasonality;
-7. rounding the result to whole calls; and
-8. clipping negative values to zero.
-
-This implementation forecasts call volume only from trend + seasonal components. The residual/noise component is not projected forward.
-
-## Future AHT calculation
-
-Future AHT is not produced by STL.
-
-Instead, historical intervals are mapped into a weekly slot based on:
-
-```text
-weekday + time of day
-```
-
-The application calculates weighted historical AHT for every weekly slot using:
-
-```text
-total historical handle time / total historical calls
-```
-
-Future intervals inherit the AHT of their corresponding historical weekly slot.
-
-If a slot has no usable historical AHT, the application falls back to the global weighted historical AHT.
-
-## Erlang C staffing calculation
-
-For each forecast interval, offered traffic is calculated as:
-
-```text
-traffic_erlangs = call_volume × aht_seconds / interval_seconds
-```
-
-The `pyworkforce.queuing.ErlangC` model then calculates staffing using:
-
-- forecast call volume;
-- forecast AHT;
-- interval duration;
-- answer-time target;
-- target service level; and
-- shrinkage.
-
-The output contains both:
-
-- `raw_agents`: positions required before shrinkage; and
-- `scheduled_agents`: positions after shrinkage.
-
-The application also returns:
-
-- service level;
-- probability of waiting;
-- occupancy; and
-- Average Speed of Answer (ASA).
-
-For intervals with zero calls, staffing and traffic are returned as zero, service level as 100%, waiting probability as 0%, occupancy as 0%, and ASA as 0.
-
-## STL forecast output columns
-
-Each interval row contains:
-
-| Field | Meaning |
-|---|---|
-| `interval_start` | Forecast interval timestamp |
-| `date` | Date string |
-| `day_of_year` | Sequential forecast-day number |
-| `month` | Month number |
-| `day` | Day of month |
-| `weekday` | Python weekday number (`0=Monday`) |
-| `weekday_name` | Weekday text |
-| `hour` | Interval hour |
-| `minute` | Interval minute |
-| `call_volume` | Forecast calls |
-| `aht_seconds` | Forecast AHT |
-| `traffic_erlangs` | Offered load |
-| `raw_agents` | Required agents before shrinkage |
-| `scheduled_agents` | Required scheduled agents after shrinkage |
-| `service_level_percent` | Achieved service level |
-| `probability_waiting_percent` | Probability of waiting |
-| `occupancy_percent` | Agent occupancy |
-| `asa_seconds` | Average Speed of Answer |
-
-## STL summary output
-
-The response also contains summary values including:
-
-- forecasting method;
-- forecasting logic description;
-- dataset count;
-- historical years;
-- output year;
-- forecast days;
-- interval length;
-- seasonal period;
-- trend lookback;
-- number of forecast intervals;
-- total predicted calls;
-- weighted average AHT;
-- maximum raw agents;
-- maximum scheduled agents;
-- average service level;
-- average occupancy;
-- average ASA;
-- number of intervals below the target service level;
-- peak interval;
-- per-source-dataset cleaning summary; and
-- STL decomposition summary such as final trend value, trend slope, seasonal range, and residual standard deviation.
-
-## Dashboard aggregates
-
-The STL endpoint also returns a `charts` object with:
-
-### Monthly
-
-- total call volume;
-- maximum scheduled agents;
-- average occupancy percentage;
-- average service-level percentage.
-
-### Daily
-
-- total call volume;
-- maximum scheduled agents;
-- average service level;
-- average occupancy;
-- average ASA.
-
-### Weekday
-
-- average interval call volume by weekday;
-- maximum scheduled agents by weekday.
-
-### Time of day
-
-- average call volume by clock time;
-- average scheduled agents by clock time.
-
----
-
-# Monthly scheduling
-
-Endpoint:
-
-```text
-POST /api/v1/schedule/monthly
-```
-
-Content type:
-
-```text
-application/json
-```
-
-## Request body
-
-```json
-{
-  "forecast": [
-    {
-      "interval_start": "2025-01-01T00:00:00",
-      "scheduled_agents": 12
-    }
-  ],
-  "year": 2025,
-  "month": 1,
-  "agent_count": null
-}
-```
-
-## Inputs
-
-| Field | Type | Required | Validation |
+| Dashboard input | Request field | Initial value | Behaviour |
 |---|---|---|---|
-| `forecast` | array of objects | yes | Must not be empty and must contain required forecast columns used by scheduling |
-| `year` | integer | yes | Used to filter forecast rows |
-| `month` | integer | yes | Pydantic validation: 1 through 12 |
-| `agent_count` | integer or null | no | If supplied, must be > 0 and not less than calculated minimum headcount |
+| Upload Historical CDR Data | `files` | Required | Multiple `.csv` or `.txt` files; one distinct historical year per file |
+| Target answer seconds | `target_seconds` | `20` | Number of seconds; browser minimum `0`, step `0.01` |
+| Target service level % | `target_service_level` | `80` | Browser range `0.01`-`99.99`, step `0.01`; API percentage conversion described below |
 
-## Shift definitions
+### Parameters used by the dashboard
 
-The scheduler uses three fixed eight-hour shifts:
-
-| Code | Shift | Time |
+| Request field | Dashboard value | Meaning |
 |---|---|---|
-| `NIGHT` | Night | `00:00-08:00` |
-| `MORNING` | Morning | `08:00-16:00` |
-| `EVENING` | Evening | `16:00-00:00` |
+| `interval_minutes` | `30` | Forecast and Erlang C source intervals are 30 minutes |
+| `forecast_days` | `365` | Full output year; expands to 366 days for a leap year |
+| `seasonal_period` | `336` | One week: 48 intervals/day multiplied by 7 |
+| `trend_lookback_days` | `90` | Recent trend window for linear extrapolation |
+| `shrinkage` | `30` | 30% shrinkage |
+| `include_forecast_rows` | `true` | Return rows needed by the tables and scheduler |
+| `max_agents` | Not sent; API default `1000` | Maximum permitted raw or scheduled staffing per interval |
 
-## How shift requirements are calculated
+Changing the forecast table's display interval does not change STL inputs or rerun Erlang C. The table defaults to **1 hr** and supports **0.5, 1, 2, 4, and 8 hr** groupings. The forecast CSV always uses 1-hour groups.
 
-For each date and shift, the scheduler looks at all forecast intervals inside that eight-hour shift.
+### Inputs accepted by the forecast API
 
-The shift's required staffing is:
+Both `POST /api/v1/cdr/stl-forecast` and `POST /api/v1/cdr/stl-forecast/async` accept `multipart/form-data` with these fields:
 
-```text
-maximum scheduled_agents value inside the shift
-```
+| Field | Type | Default | Validation / meaning |
+|---|---|---|---|
+| `files` | Repeated uploaded file | Required | 1-20 non-empty `.csv`/`.txt` files; at most 100 MiB per file |
+| `interval_minutes` | Integer | `30` | Positive exact divisor of 1440 |
+| `forecast_days` | Integer | `365` | 1-3650; `365` represents the full output year, including leap day |
+| `seasonal_period` | Integer or omitted | Automatic | Seasonal cycle length in intervals; effective period must be at least 2 |
+| `trend_lookback_days` | Integer | `90` | At least 7; uses at most the available historical trend |
+| `target_seconds` | Number | `20` | Non-negative Erlang C answer-time target in seconds |
+| `target_service_level` | Number | `80` | Converted fraction must be strictly between 0 and 1 |
+| `shrinkage` | Number | `30` | Converted fraction must be at least 0 and less than 1 |
+| `max_agents` | Integer | `1000` | 1-10,000; fails if either raw or scheduled positions exceed this value |
+| `include_forecast_rows` | Boolean | `true` | `false` returns summaries/charts with an empty `forecast` array |
 
-Using the maximum protects the shift against the busiest forecast interval within that shift.
+Percentage conversion divides values greater than 1 by 100; values at or below 1 are interpreted as fractions. Thus `80` and `0.8` both mean 80%, and `30` and `0.3` both mean 30% shrinkage. Exactly `1` means 100% and is rejected for both service level and shrinkage. Submit numeric form values, without a `%` suffix.
 
-## Minimum headcount calculation
+Omitting `seasonal_period` uses `(1440 // interval_minutes) * 7`. The current implementation also treats `0` as automatic. A nonzero supplied value must resolve to at least 2 intervals, and the historical series must contain at least two such cycles.
 
-The application estimates required employee headcount week by week.
+Valid interval examples include `5`, `10`, `15`, `20`, `30`, `60`, `120`, `240`, and `480`; `35` is invalid. Larger API horizons are supported, but the dashboard and yearly downloads are designed around one output year. Scheduling request arrays have their own row limits.
 
-For each Monday-Sunday week it calculates:
+## CDR input and cleaning
 
-```text
-weekly_capacity_headcount = ceil(total required shift assignments / 5)
-```
-
-It also calculates the maximum total staffing required on any single day of that week.
-
-The minimum headcount is the largest value found across:
-
-- weekly capacity headcount; and
-- maximum daily staffing requirement.
-
-## Monthly roster rules
-
-The roster generator applies these rules:
-
-- each agent works at most one shift per date;
-- each agent works at most five days in a Monday-Sunday week;
-- an agent not selected for a work shift on a date receives an `OFF` row;
-- assignments are ranked using weekly work count, total assignment count, shift-specific assignment count, and agent ID to spread assignments.
-
-If `agent_count` is omitted, the calculated minimum headcount is used automatically.
-
-If the supplied `agent_count` is below the calculated minimum, the request is rejected.
-
-## Schedule row output
-
-Working row example:
-
-```json
-{
-  "agent_id": "Agent 001",
-  "date": "2025-01-01",
-  "weekday": "Wednesday",
-  "shift_code": "MORNING",
-  "shift": "08:00-16:00",
-  "status": "WORK"
-}
-```
-
-Off-day example:
-
-```json
-{
-  "agent_id": "Agent 001",
-  "date": "2025-01-02",
-  "weekday": "Thursday",
-  "shift_code": "OFF",
-  "shift": "OFF",
-  "status": "OFF"
-}
-```
-
-## Monthly schedule summary
-
-The summary contains:
-
-- year;
-- month;
-- minimum agents;
-- requested/used agent count;
-- shift length (`8` hours);
-- working days per week (`5`);
-- days off per week (`2`);
-- total required shift assignments;
-- total assigned shift assignments;
-- total coverage shortage;
-- overall `coverage_ok`; and
-- detailed date/shift coverage rows.
-
----
-
-# Leave management
-
-Endpoint:
+Files have seven columns in this order, with no header:
 
 ```text
-POST /api/v1/schedule/leave
+source,destination,call_datetime,duration,disposition,unique_id,caller_id
 ```
 
-## Request body
+The reader tries UTF-16 with tabs, UTF-8 with BOM and commas, then Latin-1 with commas. It first uses pandas' C parser and falls back to its Python parser on a parsing error.
 
-```json
-{
-  "forecast": [...],
-  "schedule": [...],
-  "agent_id": "Agent 005",
-  "leave_date": "2025-01-15"
-}
-```
+| Field | Format / use |
+|---|---|
+| `source` | Non-empty calling identifier |
+| `destination` | Non-empty destination; the value `s` is excluded, case-insensitively |
+| `call_datetime` | `%Y-%b-%d %I:%M:%S %p`, for example `2025-Jan-15 09:42:11 AM` |
+| `duration` | `HH:MM:SS`, for example `00:03:12` |
+| `disposition` | Only `Answered` retained, case-insensitively |
+| `unique_id` | Read as an input field |
+| `caller_id` | Read as an input field |
 
-## Inputs and validation
+Cleaning removes unparseable dates/durations, missing source/destination values, excluded destinations/dispositions, and durations outside 1 second to 4 hours inclusive. These cleaning defaults are internal function settings, not forecast form fields.
 
-- `forecast` must not be empty.
-- `schedule` must not be empty.
-- the forecast must contain `interval_start`.
-- the leave date must be parseable by pandas.
-- the schedule must contain `agent_id`, `date`, `shift_code`, `shift`, and `status`.
-- the requested agent must have exactly one schedule row for the leave date.
+Every file must retain at least one valid answered call and exactly one calendar year after cleaning. Duplicate years across files are rejected. Full-year data is expected for forecasting quality, but the implementation does not verify that calls cover every month: it fills the year's interval grid with zero-call intervals where data is absent. Input years need not be consecutive.
 
-The API derives the leave year/month from `leave_date`, rebuilds shift requirements for that month from the supplied forecast, and then runs the leave-resolution process.
+## Forecast calculations
 
-## Leave-resolution sequence
+### Historical series and STL
 
-### 1. Mark leave
+For each historical year, the application sums calls and handle time into fixed intervals, computes AHT as handle time divided by calls, and fills a complete calendar-year interval grid. Historical February 29 intervals are removed before the yearly frames are concatenated in chronological order.
 
-If the agent is working:
+STL decomposes historical calls into trend, seasonality, and residuals. The implementation uses robust fitting, a seasonal smoother length of 7, `seasonal_jump=1`, and calculated trend/low-pass interpolation jumps. These are implementation settings, not public request fields.
 
-- the original shift code and shift label are saved;
-- `shift_code` becomes `LEAVE`;
-- `shift` becomes `LEAVE`;
-- `status` becomes `LEAVE`.
+Future calls are calculated by:
 
-If the agent is already `OFF`, no replacement is required.
+1. Fitting a line to the last `trend_lookback_days` of the fitted trend.
+2. Extrapolating that line over the forecast horizon.
+3. Repeating the final fitted seasonal cycle over the same horizon.
+4. Adding trend and seasonality, rounding to whole calls, and clipping negative values to zero.
 
-If the agent is already on `LEAVE`, the operation reports that no new leave action is required.
+Residual noise is not extrapolated. Future AHT comes from historical call-weighted AHT for the corresponding weekday/time slot, with global historical AHT as a fallback.
 
-### 2. Recalculate coverage
+### Forecast calendar
 
-The system finds the required staffing for the original shift/date and counts the agents still working that shift.
+`output_year` is the latest historical year plus one. Forecasts start on January 1 at midnight. The annual request `forecast_days=365` covers January 1-December 31, including February 29 in leap years. Other horizon values keep their specified count of consecutive calendar days.
+
+For an annual leap-year forecast, `days` is `366`, while `parameters.forecast_days` retains the requested `365`. At 30-minute intervals, annual output contains 17,520 rows in an ordinary year or 17,568 in a leap year. Historical leap-day removal does not apply to forecast dates. Regenerate older forecasts to include leap day.
+
+### Erlang C staffing
 
 ```text
-shortage = max(required_agents - assigned_agents, 0)
+traffic_erlangs = call_volume * aht_seconds / interval_seconds
 ```
 
-If coverage remains sufficient, leave is resolved without a replacement.
+`pyworkforce.queuing.ErlangC` calculates raw positions, scheduled positions after shrinkage, service level, waiting probability, and occupancy. Average speed of answer is calculated from waiting probability, AHT, raw positions, and traffic. Staffing calls are cached using call volume, AHT rounded to two decimals, interval duration, targets, shrinkage, and the agent limit.
 
-### 3. Try an OFF-agent replacement
+Zero-call intervals return zero traffic/agents, 100% service level, zero waiting probability, zero occupancy, and zero ASA. Validation still applies to the request settings.
 
-The system searches for agents who:
+### Forecast response
 
-- are not the leave agent;
-- are `OFF` on the leave date; and
-- would not exceed five working days in that Monday-Sunday week after accepting the cover shift.
+The response contains a `forecast` array, `charts`, `parameters`, and summary fields such as `dataset_count`, `historical_years`, `output_year`, `days`, `forecast_interval_count`, `total_predicted_calls`, maximum staffing, peak interval, source-file cleaning counts, and decomposition statistics.
 
-Candidates are ranked by:
-
-1. fewer current weekly working days;
-2. fewer monthly working days;
-3. agent ID.
-
-The highest-ranked candidate is assigned to the leave agent's original shift.
-
-Audit fields may be added:
-
-- `previous_shift_code`;
-- `previous_shift`;
-- `assignment_type`.
-
-A leave-cover assignment uses:
+The actual forecast row columns are:
 
 ```text
-assignment_type = LEAVE_COVER
+interval_start, date, day_of_year, month, day, weekday, weekday_name,
+hour, minute, call_volume, aht_seconds, traffic_erlangs, raw_agents,
+scheduled_agents, service_level_percent, probability_waiting_percent,
+occupancy_percent, asa_seconds
 ```
 
-The replacement is then checked against the minimum rest-period rule.
+`weekday` is 0 for Monday through 6 for Sunday. `day_of_year` is the calendar day-of-year. `interval_start` is serialized as `YYYY-MM-DDTHH:MM:SS` without a timezone suffix.
 
-### 4. Try a safe shift transfer
+Summary service level, occupancy, and ASA are arithmetic means over forecast intervals. Summary AHT uses weights `max(call_volume, 1)`. These summary calculations differ from the call-weighted hourly table calculations below. Charts contain monthly and daily totals plus weekday and time-of-day averages; see [API documentation](api_documentation.md) for their response structure.
 
-If no OFF agent is available, the application checks agents working another shift on the same date.
+## API routes and background jobs
 
-A working agent is eligible to move only when removing them from their original shift does not cause that original shift to fall below its required staffing.
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/` | Serve the dashboard, or service information if the HTML is absent |
+| `GET` | `/health` | Return `{"status":"healthy","version":"4.1.0"}` |
+| `POST` | `/api/v1/cdr/stl-forecast` | Return the complete forecast synchronously |
+| `POST` | `/api/v1/cdr/stl-forecast/async` | Save uploads and submit a background forecast job |
+| `GET` | `/api/v1/jobs/{job_id}` | Return progress, status, error, and completed result |
+| `GET` | `/api/v1/jobs/{job_id}/stream` | Stream progress as server-sent events |
+| `POST` | `/api/v1/schedule/monthly` | Generate a monthly roster from JSON forecast rows |
+| `POST` | `/api/v1/schedule/leave` | Apply leave using manual or automatic replacement |
+| `POST` | `/api/v1/schedule/swap` | Swap two working agents' shifts on one date |
 
-Candidates are ranked by:
+The dashboard uses the async forecast route and polls every 500 ms. Submission returns HTTP 200 with `job_id`, `status: queued`, `poll_url`, and `stream_url`. Job statuses are `queued`, `processing`, `completed`, and `failed`. Read `result.forecast` from a completed polling response; failed jobs expose an `error`. Polling responses have `result: null` until completion.
 
-1. more spare agents in the source shift;
-2. fewer monthly working days;
-3. agent ID.
+SSE events contain progress/status and `has_result`, not the full forecast. Retrieve the polling endpoint for the result after completion. Unknown jobs return HTTP 404.
 
-The selected agent is moved to the leave shift with:
-
-```text
-assignment_type = SHIFT_TRANSFER
-```
-
-The transfer must also pass rest validation.
-
-### 5. Unresolved leave
-
-If no safe OFF-agent replacement and no safe shift transfer is available, leave remains marked but the operation returns:
-
-```text
-resolved = false
-method = UNRESOLVED
-```
-
-Possible result methods include:
-
-```text
-NO_ACTION
-NO_REPLACEMENT_REQUIRED
-OFF_AGENT_COVER
-SHIFT_TRANSFER
-UNRESOLVED
-```
-
----
-
-# Shift swaps
-
-Endpoint:
-
-```text
-POST /api/v1/schedule/swap
-```
-
-## Request body
-
-```json
-{
-  "schedule": [...],
-  "agent_1": "Agent 003",
-  "agent_2": "Agent 010",
-  "swap_date": "2025-01-20"
-}
-```
-
-## Shift-swap validation
-
-The swap is rejected when:
-
-- the schedule is empty;
-- both selected agent IDs are the same;
-- either agent has no schedule row for the selected date;
-- either agent has multiple rows for that date;
-- either agent's status is not `WORK`;
-- either agent is assigned `OFF` or `LEAVE`;
-- both agents already work the same shift; or
-- the resulting shift assignment violates the rest rule for either agent.
-
-When valid, the two shift assignments are exchanged.
-
-Audit fields store the previous assignments and both rows are marked:
-
-```text
-assignment_type = SHIFT_SWAP
-```
-
-The result includes the previous and new shift codes for both agents and rest-validation details.
-
----
-
-# Rest-period validation
-
-Leave cover, shift transfer, and shift swap use the same rest validator.
-
-Default minimum rest:
-
-```text
-8 hours
-```
-
-For the changed assignment, the system checks:
-
-- the end of the previous day's working shift against the new shift's start; and
-- the new shift's end against the next day's working shift start.
-
-A change is rejected if either gap is less than eight hours.
-
-The shift clock used for validation is:
-
-```text
-NIGHT   00:00 → 08:00
-MORNING 08:00 → 16:00
-EVENING 16:00 → 24:00
-```
-
----
-
-# Error handling
-
-Expected user/data problems are normally returned as HTTP `400` responses with a readable `detail` message.
-
-Examples include:
-
-- missing files;
-- empty uploaded file;
-- invalid CDR data;
-- mixed years in one dataset;
-- duplicate uploaded historical years;
-- invalid interval size;
-- insufficient STL history;
-- invalid service-level/shrinkage settings;
-- staffing above `max_agents`;
-- invalid schedule month/headcount;
-- missing schedule rows;
-- impossible leave replacement; and
-- invalid shift swap/rest period.
-
-Unexpected forecast, schedule, leave, or swap failures are returned as HTTP `500` with an operation-specific message.
-
----
-
-# Health check
+Example async submission in a POSIX shell (`curl.exe` can be used with equivalent arguments in PowerShell):
 
 ```bash
-curl http://127.0.0.1:8000/health
+curl -X POST http://127.0.0.1:8000/api/v1/cdr/stl-forecast/async \
+  -F "files=@calls_2025.csv" \
+  -F "interval_minutes=30" \
+  -F "forecast_days=365" \
+  -F "seasonal_period=336" \
+  -F "trend_lookback_days=90" \
+  -F "target_seconds=20" \
+  -F "target_service_level=80" \
+  -F "shrinkage=30" \
+  -F "include_forecast_rows=true"
 ```
 
-Expected response:
+## Monthly scheduling
 
-```json
-{
-  "status": "healthy",
-  "version": "4.0.0"
-}
+Send JSON containing `forecast`, `year`, `month` (1-12), and optional `agent_count` to `/api/v1/schedule/monthly`. Forecast rows must contain `interval_start` and `scheduled_agents`; use the original forecast response, not the aggregated CSV. `agent_count` is null/omitted for automatic estimation, or an integer from 1 to 10,000.
+
+| Shift code | Dashboard label | Hours |
+|---|---|---|
+| `NIGHT` | `00:00-08:00` | 00:00-08:00 |
+| `MORNING` | `08:00-16:00` | 08:00-16:00 |
+| `EVENING` | `16:00-00:00` | 16:00-24:00 |
+
+Each date/shift requires the maximum `scheduled_agents` from its forecast intervals. Headcount is estimated across Monday-Sunday weeks as the maximum of `ceil(weekly required shift slots / 5)` and peak total daily staffing. A supplied count below this estimate is rejected.
+
+The generator assigns at most one shift per day, at most five working days per week, and at least eight hours between successive work shifts within the generated month. Candidates are ranked by weekly workdays, total assignments, shift-specific assignments, and agent ID. All remaining agent/date combinations become `OFF`. Agents are named `Agent 001`, `Agent 002`, etc.
+
+The response has `schedule` rows and a `summary` with headcount, assignment totals, `coverage_shortage`, `coverage_ok`, and per-shift coverage. The headcount estimate does not guarantee the greedy assignment will fill every shift: inspect coverage fields even after HTTP 200. Automatic estimation of zero agents for a month with no staffing demand is rejected by the generator's positive-agent-count check.
+
+Months are generated independently. Weekly limits and rest checks do not carry prior-month assignments into a new monthly generation. The yearly CSV combines these monthly schedules; it does not optimize a continuous annual roster.
+
+### Leave and shift swaps
+
+Leave requests contain `forecast`, the current `schedule`, `agent_id`, and `leave_date`. Optional fields are `replacement_agent_id` (null or 1-100 characters) and `auto_assign` (default `true`).
+
+The dashboard uses manual replacement: `auto_assign: false` and the selected replacement ID. If coverage is required, an OFF replacement must remain within the weekly work limit, or a transfer must preserve staffing in the source shift. Manual replacements skip rest validation and never fall back to a different agent. Missing/invalid manual choices return HTTP 400 when coverage is needed.
+
+API clients can omit both optional fields for automatic coverage. Providing a replacement ID always selects manual mode. Automatic mode tries an eligible OFF replacement, then a transfer from another shift, with eight-hour rest validation. A selected automatic candidate failing rest validation can cause HTTP 400; the implementation does not exhaustively search every alternative candidate.
+
+When leave is applied, the original assignment is saved and the agent's shift/status becomes `LEAVE`. Sufficient staffing needs no replacement. Agents already OFF or already on leave can produce `NO_ACTION`. Result methods include `NO_ACTION`, `NO_REPLACEMENT_REQUIRED`, `OFF_AGENT_COVER`, `SHIFT_TRANSFER`, and `UNRESOLVED`; always inspect `result.resolved` and store the returned schedule.
+
+Swap requests contain the current `schedule`, `agent_1`, `agent_2`, and `swap_date`. Both agents must have exactly one row on that date, be working different shifts, and satisfy the eight-hour rest check after exchange. The validator checks working assignments on the previous and next calendar dates present in the supplied schedule.
+
+Updated rows may include `original_shift_code`, `original_shift`, `previous_shift_code`, `previous_shift`, and `assignment_type`. Assignment types include `LEAVE_COVER`, `SHIFT_TRANSFER`, and `SHIFT_SWAP`. Later operations must use the latest returned schedule.
+
+## Dashboard filters and CSV exports
+
+### Forecast table and CSV
+
+The table shows a selected date and display interval. Calls are summed; AHT and service level are call-weighted averages, with arithmetic-average fallback for zero-call groups. Agent counts show peak source-interval requirements. AHT and service level have two decimal places.
+
+**Download Forecast CSV** exports the available output year at a fixed 1-hour interval, independent of the selected date/display interval. The filename is `stl_erlang_forecast_<year>_hourly.csv`. It uses exactly these table columns:
+
+```csv
+Interval,Calls,AHT,Raw agents,Scheduled agents,Service level %
+2026-01-01 00:00 - 01:00,40,175.00,4,5,87.50
 ```
 
-# Example end-to-end use
+A complete annual forecast produces 8,760 CSV data rows, or 8,784 in a leap year. Hour labels use forecast wall-clock dates, and the final hour ends at `24:00`. API JSON retains the original interval rows and additional staffing fields.
 
-1. Upload historical full-year CDR CSV file(s) to `/api/v1/cdr/stl-forecast`.
-2. Store the returned `forecast` array.
-3. Send that forecast to `/api/v1/schedule/monthly` with the forecast year and desired month.
-4. Store the returned `schedule` array.
-5. For leave, send the current forecast + current schedule to `/api/v1/schedule/leave`.
-6. Replace your stored schedule with the updated schedule returned by the leave endpoint.
-7. For a shift swap, send the latest schedule to `/api/v1/schedule/swap`.
-8. Replace your stored schedule with the updated schedule returned by the swap endpoint.
+### Roster week filter
 
-The API itself does not persist forecast or roster state between requests; the client/dashboard supplies the forecast and schedule objects required by later scheduling operations.
+The roster defaults to **Whole month**. **Week 1**, **Week 2**, etc. represent Monday-Sunday calendar weeks clipped to the month. For April 2026, Week 1 is Wednesday April 1-Sunday April 5, and Week 2 is April 6-12. Four, five, or six buttons appear as needed, without date ranges in their labels.
+
+Selecting a week filters date columns and recalculates **Total shifts** for the visible dates. Leave/swap updates preserve the selection. Generating a new roster resets to **Whole month**.
+
+### Yearly roster CSV
+
+**Download Yearly Roster CSV** creates `agent_roster_<year>.csv` with 12 January-December sections separated by blank rows. Each section contains a month title, an `Agent` column, each calendar day formatted like `01 Wed`, and `Total shifts`. Rows contain the dashboard's shift labels, `OFF`, or `LEAVE`. Totals count `status: WORK` assignments only.
+
+The download exports full months regardless of the week filter. It reuses monthly rosters cached during the current forecast session, including leave and swap edits. Missing months are generated sequentially through `/api/v1/schedule/monthly`, using that month's forecast rows and the agent-count setting from the most recent successful dashboard generation. Null headcount calculates each missing month's minimum independently. Cached months keep their original staffing settings and edits.
+
+Missing forecast data, insufficient requested headcount, or monthly-generation errors stop the download without saving a partial CSV. Successful generated months remain cached for retries. A returned monthly coverage shortage is not itself treated as an export error.
+
+Both exports are built in the browser as UTF-8 CSV with BOM and CRLF row endings. Commas, quotes, and line breaks are escaped. CSV keeps table rows and columns, but not dashboard colours or separate spreadsheet worksheets; the 12 roster sections share one file.
+
+## Configuration, state, and logging
+
+[app/config.py](app/config.py) defines the current limits; these values are Python constants, not environment-variable settings.
+
+| Constant | Value | Scope |
+|---|---|---|
+| `MAX_UPLOAD_BYTES` | `100 * 1024 * 1024` | Maximum bytes per uploaded file (100 MiB) |
+| `MAX_UPLOAD_FILES` | `20` | Files per forecast submission |
+| `MAX_FORECAST_DAYS` | `3650` | Maximum requested forecast horizon |
+| `MAX_AGENT_COUNT` | `10000` | Request limit for interval staffing cap and monthly headcount |
+| `MAX_FORECAST_ROWS` | `40000` | Maximum forecast rows in monthly/leave requests |
+| `MAX_SCHEDULE_ROWS` | `50000` | Maximum schedule rows in leave/swap requests |
+| `MAX_WORKER_THREADS` | `8` | Background forecast thread-pool size |
+
+Schedule/leave/swap agent IDs have a maximum of 100 characters; date strings have a maximum of 10 characters and should use `YYYY-MM-DD`. Very large generated monthly rosters can exceed the row limit for subsequent leave/swap requests.
+
+Job status/results live in process memory and are lost on restart. Separate server processes do not share jobs; the current background manager is a local thread pool. Forecast and schedule state are not stored in a database. The browser caches monthly rosters, but starting a new forecast clears that cache, and reloading the page loses browser state.
+
+Requests are logged with method, path, status, duration, and an ID returned in `X-Request-ID`. Background workers log progress and errors. Logs go to the console and `logs/app_<date>.log` using daily rotation configured with `backupCount=30`. Temporary upload files are removed after processing.
+
+## Errors and validation
+
+| Status / result | Meaning |
+|---|---|
+| HTTP 400 | Data or calculation errors, such as duplicate historical years, unsupported files, invalid forecast settings, insufficient headcount, or invalid leave/swap operations |
+| HTTP 404 | Unknown background job |
+| HTTP 413 | Uploaded file exceeds the size limit |
+| HTTP 422 | FastAPI/Pydantic request type, required-field, or declared model-bound validation |
+| HTTP 500 | Unexpected operation failure |
+| Job `status: failed` | Background forecast failed after submission; inspect its `error` |
+| `coverage_ok: false` | Monthly roster returned with a staffing shortage |
+| Leave `resolved: false` | Leave result is unresolved; inspect its method and coverage |
+
+HTTP errors generally contain a `detail` field. Background completion and schedule coverage must be checked separately from the initial HTTP status.
+
+## Development checks
+
+Compile application modules:
+
+```bash
+python -m compileall app api.py calculator.py
+```
+
+If the local `tests/` directory is present, run its unittest checks:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+The current `.gitignore` excludes `tests/`, so local tests may not be available in a fresh clone. Postman files in `postman/` currently contain placeholder requests and an empty base URL; configure them before use. The notebook and refactoring notes are supporting material; runtime behaviour is implemented in `app/` and `static/index.html`.

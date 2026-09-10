@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from calendar import isleap
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 import numpy as np
@@ -123,6 +124,10 @@ def build_stl_forecast(
         robust=True,
     ).fit()
 
+    output_year = max(seen_years) + 1
+    # The dashboard requests 365 days to represent the full forecast year.
+    if forecast_days == 365 and isleap(output_year):
+        forecast_days = 366
     horizon = forecast_days * intervals_per_day
     lookback = min(len(decomposition.trend), trend_lookback_days * intervals_per_day)
     trend_tail = np.asarray(decomposition.trend.iloc[-lookback:], dtype=float)
@@ -155,21 +160,9 @@ def build_stl_forecast(
         slot_aht["total_handle"] / slot_aht["calls"].replace(0, np.nan)
     ).fillna(global_aht)
 
-    output_year = max(seen_years) + 1
     start = pd.Timestamp(f"{output_year}-01-01 00:00:00")
     future_index = pd.date_range(start=start, periods=horizon, freq=f"{interval_minutes}min")
     future = pd.DataFrame({"interval_start": future_index})
-    future = future.loc[
-        ~((future["interval_start"].dt.month == 2) & (future["interval_start"].dt.day == 29))
-    ].head(horizon).reset_index(drop=True)
-    if len(future) < horizon:
-        extra = pd.date_range(
-            start=future_index[-1] + pd.Timedelta(minutes=interval_minutes),
-            periods=horizon - len(future) + intervals_per_day,
-            freq=f"{interval_minutes}min",
-        )
-        extra = extra[~((extra.month == 2) & (extra.day == 29))]
-        future = pd.concat([future, pd.DataFrame({"interval_start": extra})], ignore_index=True).head(horizon)
 
     future["call_volume"] = predicted_calls[:len(future)]
     future["slot"] = (
