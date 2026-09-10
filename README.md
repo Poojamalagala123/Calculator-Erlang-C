@@ -305,8 +305,8 @@ Both exports are built in the browser as UTF-8 CSV with BOM and CRLF row endings
 
 | Constant | Value | Scope |
 |---|---|---|
-| `MAX_UPLOAD_BYTES` | `100 * 1024 * 1024` | Maximum bytes per uploaded file (100 MiB) |
-| `MAX_UPLOAD_FILES` | `20` | Files per forecast submission |
+| `MAX_UPLOAD_BYTES` | `25 * 1024 * 1024` | Maximum bytes per uploaded file (25 MiB) |
+| `MAX_UPLOAD_FILES` | `10` | Files per forecast submission |
 | `MAX_FORECAST_DAYS` | `3650` | Maximum requested forecast horizon |
 | `MAX_AGENT_COUNT` | `10000` | Request limit for interval staffing cap and monthly headcount |
 | `MAX_FORECAST_ROWS` | `40000` | Maximum forecast rows in monthly/leave requests |
