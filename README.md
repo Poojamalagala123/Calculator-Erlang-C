@@ -68,8 +68,6 @@ Calculator-Erlang-C/
 |-- api_documentation.md
 |-- Forecast_Comparison.ipynb       # Forecast exploration notebook
 |-- refactor.md                    # Refactoring notes
-|-- .postman/                      # Postman workspace metadata
-`-- postman/                       # Local Postman resources
 ```
 
 ## Dashboard workflow
