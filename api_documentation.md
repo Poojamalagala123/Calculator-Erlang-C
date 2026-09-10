@@ -419,7 +419,11 @@ OFF schedule row:
 
 # POST `/api/v1/schedule/leave`
 
-Apply leave and automatically attempt safe coverage.
+Apply leave with a manually selected replacement or automatic coverage.
+
+The dashboard sends `auto_assign: false` and `replacement_agent_id` (the selected agent ID). If coverage is needed, manual mode requires an eligible selection and never falls back to another agent. OFF agents must remain within the weekly work limit; transfers must preserve source-shift coverage. Minimum-rest validation is skipped for manual replacements.
+
+Both fields are optional for existing API clients: `auto_assign` defaults to `true`, and omitting the replacement ID retains automatic coverage with rest validation. Supplying a replacement ID always selects manual mode. If staffing is already sufficient, no replacement is assigned.
 
 ## Request model
 

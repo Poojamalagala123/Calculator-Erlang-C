@@ -1,0 +1,4 @@
+name: CDR API - Local
+values:
+  - key: base_url
+    value: ''

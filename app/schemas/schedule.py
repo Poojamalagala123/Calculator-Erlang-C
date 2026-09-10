@@ -13,6 +13,8 @@ class AgentLeaveRequest(BaseModel):
     schedule: list[dict] = Field(min_length=1, max_length=MAX_SCHEDULE_ROWS)
     agent_id: str = Field(min_length=1, max_length=100)
     leave_date: str = Field(min_length=1, max_length=10)
+    replacement_agent_id: str | None = Field(default=None, min_length=1, max_length=100)
+    auto_assign: bool = True
 
 class AgentShiftSwapRequest(BaseModel):
     schedule: list[dict] = Field(min_length=1, max_length=MAX_SCHEDULE_ROWS)

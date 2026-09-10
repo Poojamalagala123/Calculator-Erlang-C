@@ -161,6 +161,50 @@
             height: 285px;
         }
 
+        .week-selector {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 14px;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+            flex-wrap: wrap;
+        }
+
+        .week-selector-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            margin-right: 4px;
+        }
+
+        .week-btn {
+            background: #f1f3f4;
+            color: #3c4043;
+            border: 1px solid #dadce0;
+            border-radius: 6px;
+            padding: 5px 12px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-width: 32px;
+            text-align: center;
+        }
+
+        .week-btn:hover {
+            background: #e8eaed;
+            border-color: #bdc1c6;
+        }
+
+        .week-btn.active {
+            background: #1a73e8;
+            color: #fff;
+            border-color: #1a73e8;
+            box-shadow: 0 1px 3px rgba(26, 115, 232, 0.4);
+        }
+
         .table-box {
             margin-top: 20px;
             padding: 18px;
@@ -261,6 +305,130 @@
                 min-height: 330px;
             }
         }
+
+        :root {
+            color-scheme: light;
+            --ink: #172b43;
+            --muted: #5b6d82;
+            --line: #dfe7ef;
+            --accent: #087f83;
+            --surface: #ffffff;
+        }
+        body {
+            font-family: "Segoe UI", system-ui, sans-serif;
+            background: #f2f5f9;
+            color: var(--ink);
+            font-size: 14px;
+            line-height: 1.55;
+        }
+        [hidden] { display: none !important; }
+        .container { width: min(1440px, calc(100% - 64px)); margin: 32px auto 64px; }
+        .workspace-header {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 24px; padding: 28px 32px; margin-bottom: 28px;
+            background: #142d48; color: white; border-radius: 18px;
+            border: 1px solid #25415d;
+        }
+        .eyebrow { margin: 0 0 8px; color: #9fdddd; font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+        h1 { font-size: clamp(24px, 3vw, 34px); line-height: 1.2; letter-spacing: -.035em; margin: 0 0 12px; font-weight: 650; }
+        h2 { font-size: 18px; line-height: 1.4; letter-spacing: -.02em; font-weight: 650; }
+        .subtitle { color: #c3d2e2; max-width: 720px; margin: 0; font-size: 14px; }
+        .header-badge { flex-shrink: 0; padding: 8px 14px; border: 1px solid #456178; border-radius: 30px; font-size: 12px; color: #d4eeee; }
+        .panel, .card, .chart-box, .table-box {
+            border: 1px solid var(--line); border-radius: 16px;
+            box-shadow: 0 4px 16px rgba(22, 43, 67, .035);
+        }
+        .panel { padding: 28px; margin: 24px 0; }
+        .panel > h2 { margin-bottom: 8px; }
+        .section-description { margin: 0 0 24px; color: var(--muted); }
+        .form-grid { gap: 20px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+        label { font-size: 12px; font-weight: 650; color: #40536b; margin-bottom: 8px; }
+        input, select {
+            font: inherit; min-height: 44px; padding: 10px 12px;
+            border: 1px solid #cbd7e3; border-radius: 8px; color: var(--ink);
+            transition: border-color .15s, box-shadow .15s;
+        }
+        input:hover, select:hover { border-color: #8ca6ba; }
+        :is(input, select, button, a):focus-visible { outline: 3px solid #2d9ba2; outline-offset: 3px; }
+        .file-group { padding: 22px; border: 1px dashed #a8c4d2; border-radius: 12px; background: #f7fafc; }
+        input[type=file] { background: white; padding: 8px; }
+        input[type=file]::file-selector-button {
+            font: inherit; font-weight: 600; padding: 8px 14px; margin-right: 12px;
+            background: #e8f3f3; color: #116367; border: 0; border-radius: 6px; cursor: pointer;
+        }
+        button {
+            font: inherit; font-weight: 600; min-height: 44px; padding: 10px 18px;
+            border-radius: 8px; background: var(--accent); border: 1px solid transparent;
+            transition: background .15s, box-shadow .15s;
+        }
+        button:hover:not(:disabled) { background: #056a70; box-shadow: 0 3px 8px #087f831c; }
+        button.secondary { color: #334d66; background: white; border-color: #cbd7e3; }
+        button.secondary:hover:not(:disabled) { background: #edf3f8; }
+        button:disabled { background: #e9eef3; color: #6b7889; border-color: #dfe7ef; cursor: not-allowed; box-shadow: none; }
+        .actions { gap: 10px; }
+        #forecastForm .actions { grid-column: 1 / -1; padding-top: 4px; }
+        .status { font-size: 13px; font-weight: 600; }
+        .status:empty { display: none; }
+        .status:not(:empty) { padding: 12px 16px; background: #f0f5fa; border-radius: 8px; }
+        .status.success { background: #edf8f1; color: #176439; }
+        .status.error { background: #fff1f2; color: #a6223b; }
+        .section-title { margin: 32px 0 18px; font-size: 21px; }
+        .cards { gap: 18px; margin-bottom: 24px; }
+        .card { padding: 22px 24px; border-top: 3px solid #269397; }
+        .card-title { color: var(--muted); font-size: 12px; font-weight: 600; }
+        .card-value { margin-top: 10px; font-size: 30px; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+        .chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+        .chart-box { min-width: 0; padding: 24px; }
+        .chart-box:last-child { grid-column: 1 / -1; }
+        .chart-box h2 { font-size: 15px; margin-bottom: 22px; }
+        .chart-container { height: 290px; }
+        .week-selector { justify-content: flex-start; gap: 6px; border-color: var(--line); }
+        .week-btn { min-height: 34px; min-width: 36px; padding: 5px 10px; background: #f2f6f9; border-color: var(--line); color: #40536b; }
+        .week-btn:hover:not(:disabled) { background: #dfeeee; color: #155b60; }
+        .week-btn.active { background: var(--accent); border-color: var(--accent); color: white; box-shadow: none; }
+        #daySelectionHint { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
+        .table-box { padding: 24px; margin-top: 24px; }
+        .table-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 16px; }
+        .table-toolbar h2 { margin: 0; }
+        .table-filters { display: flex; gap: 12px; flex-wrap: wrap; }
+        .table-filters select { min-width: 150px; }
+        .table-filters label { margin-bottom: 4px; }
+        table { min-width: 720px; font-size: 13px; font-variant-numeric: tabular-nums; }
+        th, td { padding: 13px 16px; border-color: #e8edf3; }
+        th { background: #f2f6fa; color: #53657a; font-size: 11px; letter-spacing: .035em; font-weight: 700; }
+        tbody tr:nth-child(even) { background: #fafcfe; }
+        tbody tr:hover { background: #edf6f7; }
+        #forecastTableBody td:not(:first-child) { text-align: right; }
+        .forecast-table th:not(:first-child) { text-align: right; }
+        .note, .file-list { color: var(--muted); font-size: 12px; line-height: 1.7; }
+        .schedule-info { border-color: var(--line); background: #edf5f8; padding: 16px 20px; border-radius: 10px; }
+        .schedule-table-wrapper { border: 1px solid var(--line); border-radius: 10px; }
+        .schedule-table th, .schedule-table td { padding: 10px 12px; }
+        @media (max-width: 900px) {
+            .container { width: calc(100% - 32px); margin-top: 16px; }
+            .workspace-header { padding: 24px; }
+            .header-badge { display: none; }
+            .chart-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 600px) {
+            .container { width: calc(100% - 20px); }
+            .workspace-header { padding: 22px 18px; }
+            .panel, .chart-box, .table-box { padding: 18px; border-radius: 12px; }
+            .form-grid { grid-template-columns: 1fr; }
+            .file-group { padding: 14px; }
+            .cards { grid-template-columns: 1fr 1fr; gap: 10px; }
+            .card { padding: 16px; }
+            .card-value { font-size: 24px; }
+            .actions { width: 100%; }
+            .actions button { flex: 1 1 180px; }
+            .table-filters { width: 100%; }
+            .table-filters > div { flex: 1 1 120px; }
+            .table-filters select { min-width: 0; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
+        }
+
     </style>
 </head>
 
@@ -268,16 +436,23 @@
 
 <div class="container">
 
-    <h1>Erlang C Forecast & Agent Scheduling Dashboard</h1>
+    <header class="workspace-header">
+        <div>
+            <p class="eyebrow">Workforce intelligence / Planning workspace</p>
+            <h1>Demand &amp; workforce planning</h1>
 
     <p class="subtitle">
         Forecast contact-centre demand, calculate Erlang C staffing requirements,
         and generate 24×7 monthly agent schedules.
     </p>
 
+        </div>
+        <span class="header-badge">Erlang C &middot; STL forecasting</span>
+    </header>
     <div class="panel">
 
-        <h2>Forecast Configuration (STL Decomposition)</h2>
+        <h2>Configure your forecast</h2>
+        <p class="section-description">Start with historical call data and set your service targets.</p>
 
         <form id="forecastForm">
 
@@ -312,67 +487,6 @@
 
                 </div>
 
-                <div>
-
-                    <label for="interval">
-                        Interval minutes
-                    </label>
-
-                    <input
-                        id="interval"
-                        type="number"
-                        min="1"
-                        step="1"
-                        value="30"
-                        required
-                    >
-
-                </div>
-
-                <div id="forecastDaysGroup">
-
-                    <label for="forecastDays">
-                        Forecast days
-                    </label>
-
-                    <input
-                        id="forecastDays"
-                        type="number"
-                        min="1"
-                        step="1"
-                        value="365"
-                    >
-
-                </div>
-
-                <div id="seasonalPeriodGroup">
-
-                    <label for="seasonalPeriodPreset">
-                        Seasonal pattern
-                    </label>
-
-                    <select id="seasonalPeriodPreset">
-                        <option value="weekly" selected>Weekly</option>
-                        <option value="monthly">Monthly</option>
-                    </select>
-
-                </div>
-
-                <div id="trendLookbackGroup">
-
-                    <label for="trendLookback">
-                        Trend lookback days
-                    </label>
-
-                    <input
-                        id="trendLookback"
-                        type="number"
-                        min="7"
-                        step="1"
-                        value="90"
-                    >
-
-                </div>
 
                 <div>
 
@@ -409,24 +523,6 @@
 
                 </div>
 
-                <div>
-
-                    <label for="shrinkage">
-                        Shrinkage %
-                    </label>
-
-                    <input
-                        id="shrinkage"
-                        type="number"
-                        min="0"
-                        max="99.99"
-                        step="0.01"
-                        value="30"
-                        required
-                    >
-
-                </div>
-
                 <div class="actions">
 
                     <button
@@ -453,7 +549,7 @@
 
         <div
             id="status"
-            class="status"
+            class="status" role="status" aria-live="polite"
         ></div>
 
     </div>
@@ -470,56 +566,18 @@
         <div class="cards">
 
             <div class="card">
-                <div class="card-title">Datasets used</div>
-                <div id="datasetCount" class="card-value">0</div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Historical years</div>
-                <div id="historicalYears" class="card-value">-</div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Output days</div>
-                <div id="outputDays" class="card-value">365</div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Predicted calls</div>
+                <div class="card-title">Total calls</div>
                 <div id="totalCalls" class="card-value">0</div>
             </div>
 
             <div class="card">
-                <div class="card-title">Average AHT</div>
+                <div class="card-title">Average handle time</div>
                 <div id="averageAht" class="card-value">0s</div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Max scheduled agents</div>
-                <div id="maxAgents" class="card-value">0</div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Average service level</div>
-                <div id="averageService" class="card-value">0%</div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Average occupancy</div>
-                <div id="averageOccupancy" class="card-value">0%</div>
             </div>
 
         </div>
 
         <div class="chart-grid">
-
-            <div class="chart-box">
-                <h2>Daily predicted calls</h2>
-
-                <div class="chart-container">
-                    <canvas id="dailyCallsChart"></canvas>
-                </div>
-            </div>
 
             <div class="chart-box">
                 <h2>Monthly predicted calls</h2>
@@ -529,32 +587,19 @@
                 </div>
             </div>
 
-            <div class="chart-box">
-                <h2>Daily maximum scheduled agents</h2>
-
-                <div class="chart-container">
-                    <canvas id="dailyAgentsChart"></canvas>
-                </div>
-            </div>
-
-            <div class="chart-box">
-                <h2>Service level and occupancy</h2>
-
-                <div class="chart-container">
-                    <canvas id="performanceChart"></canvas>
-                </div>
-            </div>
-
-            <div class="chart-box">
-                <h2>Average calls by weekday</h2>
+            <div class="chart-box" id="weekdayChartBox">
+                <h2 id="weekdayChartTitle">Average calls by weekday</h2>
 
                 <div class="chart-container">
                     <canvas id="weekdayChart"></canvas>
                 </div>
+
+                <div id="weekSelector" class="week-selector"></div>
+                <p id="daySelectionHint">Select a week, then click a day to view calls by time for that date.</p>
             </div>
 
             <div class="chart-box">
-                <h2>Average calls by time</h2>
+                <h2 id="timeChartTitle">Average calls by time</h2>
 
                 <div class="chart-container">
                     <canvas id="timeChart"></canvas>
@@ -565,14 +610,32 @@
 
         <div class="table-box">
 
-            <h2>Predicted Erlang C Details</h2>
+            <div class="table-toolbar">
+                <h2>Predicted Erlang C Details</h2>
+                <div class="table-filters">
+                    <div>
+                        <label for="tableDate">Date</label>
+                        <input id="tableDate" type="date" required disabled>
+                    </div>
+                    <div>
+                        <label for="tableIntervalMinutes">Interval</label>
+                        <select id="tableIntervalMinutes">
+                            <option value="30">0.5 hr</option>
+                            <option value="60" selected>1 hr</option>
+                            <option value="120">2 hr</option>
+                            <option value="240">4 hr</option>
+                            <option value="480">8 hr</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
 
             <p class="note">
-                The table displays the first 50 rows for browser performance.
+                The table displays intervals for the selected date. Calls are summed; AHT and service level are call-weighted averages. Agent counts show the peak requirement in each interval.
                 Download Forecast CSV contains all forecast intervals.
             </p>
 
-            <table>
+            <table class="forecast-table">
 
                 <thead>
 
@@ -580,13 +643,9 @@
                     <th>Interval</th>
                     <th>Calls</th>
                     <th>AHT</th>
-                    <th>Traffic</th>
                     <th>Raw agents</th>
                     <th>Scheduled agents</th>
                     <th>Service level %</th>
-                    <th>Waiting %</th>
-                    <th>Occupancy %</th>
-                    <th>ASA</th>
                 </tr>
 
                 </thead>
@@ -680,7 +739,7 @@
 
         <div
             id="scheduleStatus"
-            class="status"
+            class="status" role="status" aria-live="polite"
         ></div>
 
     </div>
@@ -694,8 +753,8 @@
         <h2>Agent Leave Management</h2>
 
         <p class="note">
-            Select an agent and leave date. The system first tries an available OFF agent,
-            then a safe transfer from an overstaffed shift while preserving required staffing coverage.
+            Select an agent, leave date, and replacement. OFF agents appear first, followed by agents on other shifts.
+            Staffing coverage and weekly work limits apply. Minimum rest is not checked for leave replacements.
         </p>
 
         <div class="form-grid">
@@ -716,6 +775,13 @@
                     type="date"
                 >
             </div>
+            <div>
+                <label for="leaveReplacementAgent">Replacement agent</label>
+                <select id="leaveReplacementAgent" disabled>
+                    <option value="">Select an agent and date first</option>
+                </select>
+                <div id="leaveReplacementHint" class="note" aria-live="polite"></div>
+            </div>
 
             <div class="actions">
 
@@ -732,7 +798,7 @@
 
         <div
             id="leaveStatus"
-            class="status"
+            class="status" role="status" aria-live="polite"
         ></div>
 
     </div>
@@ -746,7 +812,7 @@
             <div><label for="swapAgent2">Agent 2</label><select id="swapAgent2"><option value="">Select agent</option></select></div>
             <div class="actions"><button id="applySwapButton" type="button">Apply Shift Swap</button></div>
         </div>
-        <div id="swapStatus" class="status"></div>
+        <div id="swapStatus" class="status" role="status" aria-live="polite"></div>
     </div>
 
     <section
@@ -896,6 +962,17 @@
     const tableBody =
         document.getElementById("forecastTableBody");
 
+    if (typeof Chart !== "undefined") {
+        Chart.defaults.font.family = '"Segoe UI", system-ui, sans-serif';
+        Chart.defaults.color = "#5b6d82";
+        Chart.defaults.borderColor = "#e8edf3";
+        Chart.defaults.plugins.legend.labels.usePointStyle = true;
+        Chart.defaults.plugins.legend.labels.padding = 18;
+        Chart.defaults.plugins.tooltip.backgroundColor = "#142d48";
+        Chart.defaults.plugins.tooltip.padding = 12;
+        Chart.defaults.plugins.tooltip.cornerRadius = 8;
+    }
+
     let charts = [];
 
     let forecastRows = [];
@@ -958,14 +1035,24 @@
         }
     );
 
-    function destroyCharts() {
+    let currentForecastYear = null;
+    let selectedMonthIndex = 0;
+    let selectedWeek = 1;
+    let currentMonthWeeks = [];
+    let weekdayChartInstance = null;
+    let monthlyChartInstance = null;
+    let timeChartInstance = null;
+    let precomputedDailyData = {};
+    let monthlyDataCache = [];
 
+    function destroyCharts() {
         charts.forEach(
             chart => chart.destroy()
         );
-
         charts = [];
-
+        weekdayChartInstance = null;
+        monthlyChartInstance = null;
+        timeChartInstance = null;
     }
 
     function makeChart(
@@ -973,86 +1060,329 @@
         type,
         labels,
         datasets,
-        yTitle
+        yTitle,
+        extraOptions = {}
     ) {
+        const baseOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: "index",
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: "top"
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        maxTicksLimit: 18,
+                        maxRotation: 45,
+                        minRotation: 0
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: yTitle
+                    }
+                }
+            }
+        };
 
         const chart =
             new Chart(
                 document.getElementById(canvasId),
                 {
-
                     type,
-
                     data: {
                         labels,
                         datasets
                     },
-
                     options: {
-
-                        responsive: true,
-
-                        maintainAspectRatio: false,
-
-                        interaction: {
-                            mode: "index",
-                            intersect: false
-                        },
-
+                        ...baseOptions,
+                        ...extraOptions,
                         plugins: {
-                            legend: {
-                                position: "top"
-                            }
-                        },
-
-                        scales: {
-
-                            x: {
-                                ticks: {
-                                    maxTicksLimit: 18,
-                                    maxRotation: 45,
-                                    minRotation: 0
-                                }
-                            },
-
-                            y: {
-
-                                beginAtZero: true,
-
-                                title: {
-                                    display: true,
-                                    text: yTitle
-                                }
-
-                            }
-
+                            ...baseOptions.plugins,
+                            ...(extraOptions.plugins || {})
                         }
-
                     }
-
                 }
             );
 
         charts.push(chart);
+        return chart;
+    }
 
+    function indexForecastByDate(rows) {
+        const daily = {};
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i];
+            const d = r.date;
+            if (!daily[d]) {
+                daily[d] = {
+                    date: d,
+                    month: r.month,
+                    weekday: r.weekday,
+                    weekday_name: r.weekday_name,
+                    totalCalls: 0,
+                    intervalCount: 0,
+                    intervals: []
+                };
+            }
+            daily[d].totalCalls += (r.call_volume || 0);
+            daily[d].intervalCount += 1;
+            daily[d].intervals.push(r);
+        }
+        return daily;
+    }
+
+    function getMonthWeeks(year, month) {
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const weeks = [];
+        let currentWeek = {
+            weekNumber: 1,
+            days: {}
+        };
+
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateObj = new Date(year, month - 1, d);
+            const jsDay = dateObj.getDay();
+            const weekdayIndex = (jsDay === 0) ? 6 : jsDay - 1; // 0=Mon, ..., 6=Sun
+
+            if (weekdayIndex === 0 && Object.keys(currentWeek.days).length > 0) {
+                weeks.push(currentWeek);
+                currentWeek = {
+                    weekNumber: weeks.length + 1,
+                    days: {}
+                };
+            }
+
+            const monthStr = String(month).padStart(2, "0");
+            const dayStr = String(d).padStart(2, "0");
+            currentWeek.days[weekdayIndex] = `${year}-${monthStr}-${dayStr}`;
+        }
+
+        if (Object.keys(currentWeek.days).length > 0) {
+            weeks.push(currentWeek);
+        }
+
+        return weeks;
+    }
+
+    function getMonthlyBarColors(selectedIndex, totalMonths) {
+        const bgColors = [];
+        const borderColors = [];
+        for (let i = 0; i < totalMonths; i++) {
+            if (i === selectedIndex) {
+                bgColors.push("#1a73e8");
+                borderColors.push("#1557b0");
+            } else {
+                bgColors.push("rgba(66, 133, 244, 0.45)");
+                borderColors.push("rgba(66, 133, 244, 0.75)");
+            }
+        }
+        return { bgColors, borderColors };
+    }
+
+    function renderWeekButtons(totalWeeks, activeWeek) {
+        const container = document.getElementById("weekSelector");
+        if (!container) return;
+
+        container.innerHTML = "";
+        const label = document.createElement("span");
+        label.className = "week-selector-label";
+        label.textContent = "Week:";
+        container.appendChild(label);
+
+        for (let w = 1; w <= totalWeeks; w++) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = `week-btn ${w === activeWeek ? "active" : ""}`;
+            btn.textContent = w;
+            btn.dataset.week = w;
+            btn.addEventListener("click", () => {
+                selectWeek(w);
+            });
+            container.appendChild(btn);
+        }
+
+        const allBtn = document.createElement("button");
+        allBtn.type = "button";
+        allBtn.className = `week-btn ${activeWeek === "all" ? "active" : ""}`;
+        allBtn.textContent = "All";
+        allBtn.dataset.week = "all";
+        allBtn.title = "Entire month average";
+        allBtn.addEventListener("click", () => {
+            selectWeek("all");
+        });
+        container.appendChild(allBtn);
+    }
+
+    function selectedDateForDay(dayIndex) {
+        if (selectedWeek === "all") return null;
+        const week = currentMonthWeeks[selectedWeek - 1];
+        return week ? week.days[dayIndex] || null : null;
+    }
+
+    function resetTimeChart() {
+        if (weekdayChartInstance) {
+            weekdayChartInstance.data.datasets[0].backgroundColor = "rgba(52, 168, 83, 0.7)";
+            weekdayChartInstance.update();
+        }
+        document.getElementById("daySelectionHint").textContent = selectedWeek === "all"
+            ? "Showing monthly averages by time. Select a week to explore individual dates."
+            : "Showing weekly averages by time. Click a day to view that date.";
+        if (!timeChartInstance) return;
+
+        const monthPrefix = `${currentForecastYear}-${String(selectedMonthIndex + 1).padStart(2, "0")}`;
+        const week = currentMonthWeeks[selectedWeek - 1];
+        const weekDates = new Set(week ? Object.values(week.days) : []);
+        const timeBuckets = new Map();
+        for (const day of Object.values(precomputedDailyData)) {
+            const included = selectedWeek === "all"
+                ? day.date.slice(0, 7) === monthPrefix
+                : weekDates.has(day.date);
+            if (!included) continue;
+            for (const row of day.intervals) {
+                const time = row.interval_start.slice(11, 16);
+                const bucket = timeBuckets.get(time) || { calls: 0, count: 0 };
+                bucket.calls += Number(row.call_volume) || 0;
+                bucket.count += 1;
+                timeBuckets.set(time, bucket);
+            }
+        }
+        const times = [...timeBuckets.keys()].sort();
+        const monthLabel = monthlyDataCache[selectedMonthIndex]?.month_label || monthPrefix;
+        const scope = selectedWeek === "all"
+            ? `${monthLabel} ${currentForecastYear} (All weeks)`
+            : `${monthLabel} ${currentForecastYear} (Week ${selectedWeek})`;
+        document.getElementById("timeChartTitle").textContent = `Average calls by time - ${scope}`;
+        timeChartInstance.data.labels = times;
+        timeChartInstance.data.datasets[0].data = times.map(time => {
+            const bucket = timeBuckets.get(time);
+            return Number((bucket.calls / bucket.count).toFixed(2));
+        });
+        timeChartInstance.data.datasets[0].label = `Average calls - ${scope}`;
+        timeChartInstance.update();
+    }
+
+    function selectDay(dayIndex) {
+        const date = selectedDateForDay(dayIndex);
+        const day = date && precomputedDailyData[date];
+        if (!day) return;
+        const intervals = [...day.intervals].sort((a, b) =>
+            a.interval_start.localeCompare(b.interval_start)
+        );
+        timeChartInstance.data.labels = intervals.map(row => row.interval_start.slice(11, 16));
+        timeChartInstance.data.datasets[0].data = intervals.map(row => row.call_volume);
+        timeChartInstance.data.datasets[0].label = `Predicted calls (${date})`;
+        document.getElementById("timeChartTitle").textContent = `Calls by time - ${date}`;
+        document.getElementById("daySelectionHint").textContent = `Selected date: ${date}`;
+        weekdayChartInstance.data.datasets[0].backgroundColor =
+            weekdayChartInstance.data.labels.map((_, index) =>
+                index === dayIndex ? "#1e8e3e" : "rgba(52, 168, 83, 0.35)"
+            );
+        weekdayChartInstance.update();
+        timeChartInstance.update();
+    }
+
+    function selectWeek(week) {
+        selectedWeek = week;
+        const container = document.getElementById("weekSelector");
+        if (container) {
+            const btns = container.querySelectorAll(".week-btn");
+            btns.forEach(b => {
+                if (b.dataset.week == String(week)) {
+                    b.classList.add("active");
+                } else {
+                    b.classList.remove("active");
+                }
+            });
+        }
+        updateWeekdayChartData(selectedMonthIndex, selectedWeek);
+        resetTimeChart();
+    }
+
+    function updateWeekdayChartData(monthIndex, week) {
+        if (!weekdayChartInstance) return;
+
+        const weekdayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+        const monthNumber = monthIndex + 1;
+        const monthLabel = monthlyDataCache[monthIndex] ? monthlyDataCache[monthIndex].month_label : `Month ${monthNumber}`;
+
+        let chartDataValues = [];
+        let datasetLabel = "";
+        let titleText = "";
+
+        if (week === "all") {
+            titleText = `Average calls by weekday — ${monthLabel} (All Weeks)`;
+            datasetLabel = `Average calls per interval (${monthLabel})`;
+
+            chartDataValues = weekdayOrder.map((name, i) => {
+                let totalCalls = 0;
+                let totalIntervals = 0;
+                for (const dateStr in precomputedDailyData) {
+                    const rec = precomputedDailyData[dateStr];
+                    if (rec.month === monthNumber && rec.weekday === i) {
+                        totalCalls += rec.totalCalls;
+                        totalIntervals += rec.intervalCount;
+                    }
+                }
+                return totalIntervals > 0 ? Number((totalCalls / totalIntervals).toFixed(2)) : 0;
+            });
+        } else {
+            const weekIdx = week - 1;
+            const weekObj = currentMonthWeeks[weekIdx];
+            titleText = `Average calls by weekday — ${monthLabel} (Week ${week})`;
+            datasetLabel = `Average calls per interval (Week ${week})`;
+
+            chartDataValues = weekdayOrder.map((name, i) => {
+                if (!weekObj || !weekObj.days[i]) {
+                    return 0;
+                }
+                const dateStr = weekObj.days[i];
+                const dayRec = precomputedDailyData[dateStr];
+                if (!dayRec) return 0;
+                return Number((dayRec.totalCalls / (dayRec.intervalCount || 48)).toFixed(2));
+            });
+        }
+
+        const titleElem = document.getElementById("weekdayChartTitle");
+        if (titleElem) {
+            titleElem.textContent = titleText;
+        }
+
+        weekdayChartInstance.data.labels = weekdayOrder;
+        weekdayChartInstance.data.datasets[0].data = chartDataValues;
+        weekdayChartInstance.data.datasets[0].label = datasetLabel;
+        weekdayChartInstance.update();
+    }
+
+    function selectMonth(monthIndex) {
+        selectedMonthIndex = monthIndex;
+
+        if (monthlyChartInstance) {
+            const { bgColors, borderColors } = getMonthlyBarColors(selectedMonthIndex, monthlyDataCache.length);
+            monthlyChartInstance.data.datasets[0].backgroundColor = bgColors;
+            monthlyChartInstance.data.datasets[0].borderColor = borderColors;
+            monthlyChartInstance.update();
+        }
+
+        const monthNumber = selectedMonthIndex + 1;
+        currentMonthWeeks = getMonthWeeks(currentForecastYear, monthNumber);
+
+        // Default to week 1 as requested
+        selectedWeek = 1;
+        renderWeekButtons(currentMonthWeeks.length, selectedWeek);
+        updateWeekdayChartData(selectedMonthIndex, selectedWeek);
+        resetTimeChart();
     }
 
     function renderSummary(data) {
-
-        document.getElementById(
-            "datasetCount"
-        ).textContent =
-            data.dataset_count;
-
-        document.getElementById(
-            "historicalYears"
-        ).textContent =
-            (data.historical_years || []).join(", ");
-
-        document.getElementById(
-            "outputDays"
-        ).textContent =
-            data.days;
 
         document.getElementById(
             "totalCalls"
@@ -1068,138 +1398,122 @@
                 data.average_aht_seconds
             ).toFixed(2)}s`;
 
-        document.getElementById(
-            "maxAgents"
-        ).textContent =
-            data.maximum_scheduled_agents;
-
-        document.getElementById(
-            "averageService"
-        ).textContent =
-            `${Number(
-                data.average_service_level_percent
-            ).toFixed(2)}%`;
-
-        document.getElementById(
-            "averageOccupancy"
-        ).textContent =
-            `${Number(
-                data.average_occupancy_percent
-            ).toFixed(2)}%`;
-
     }
 
     function renderCharts(chartData) {
 
         destroyCharts();
 
-        const daily =
-            chartData.daily || [];
+        precomputedDailyData = indexForecastByDate(forecastRows);
+        currentForecastYear = (forecastRows.length && forecastRows[0].interval_start)
+            ? new Date(forecastRows[0].interval_start).getFullYear()
+            : new Date().getFullYear();
 
-        makeChart(
-            "dailyCallsChart",
-            "line",
-            daily.map(x => x.date),
-            [
-                {
-                    label: "Calls",
-                    data: daily.map(
-                        x => x.call_volume
-                    ),
-                    borderWidth: 2,
-                    pointRadius: 0
-                }
-            ],
-            "Calls"
-        );
+        const monthly = chartData.monthly || [];
+        monthlyDataCache = monthly;
 
-        makeChart(
-            "dailyAgentsChart",
-            "line",
-            daily.map(x => x.date),
-            [
-                {
-                    label: "Scheduled agents",
-                    data: daily.map(
-                        x => x.max_scheduled_agents
-                    ),
-                    borderWidth: 2,
-                    pointRadius: 0
-                }
-            ],
-            "Agents"
-        );
+        selectedMonthIndex = 0;
+        const { bgColors, borderColors } = getMonthlyBarColors(selectedMonthIndex, monthly.length);
 
-        makeChart(
-            "performanceChart",
-            "line",
-            daily.map(x => x.date),
-            [
-                {
-                    label: "Service level %",
-                    data: daily.map(
-                        x => x.average_service_level_percent
-                    ),
-                    borderWidth: 2,
-                    pointRadius: 0
-                },
-
-                {
-                    label: "Occupancy %",
-                    data: daily.map(
-                        x => x.average_occupancy_percent
-                    ),
-                    borderWidth: 2,
-                    pointRadius: 0
-                }
-            ],
-            "Percent"
-        );
-
-        const monthly =
-            chartData.monthly || [];
-
-        makeChart(
+        monthlyChartInstance = makeChart(
             "monthlyCallsChart",
             "bar",
-            monthly.map(
-                x => x.month_label
-            ),
+            monthly.map(x => x.month_label),
             [
                 {
                     label: "Calls",
-                    data: monthly.map(
-                        x => x.call_volume
-                    )
+                    data: monthly.map(x => x.call_volume),
+                    backgroundColor: bgColors,
+                    borderColor: borderColors,
+                    borderWidth: 1
                 }
             ],
-            "Calls"
+            "Calls",
+            {
+                onClick: (event, elements) => {
+                    if (elements && elements.length > 0) {
+                        const clickedIndex = elements[0].index;
+                        selectMonth(clickedIndex);
+                    }
+                },
+                onHover: (event, elements) => {
+                    event.native.target.style.cursor = elements && elements.length > 0 ? "pointer" : "default";
+                }
+            }
         );
 
-        const weekday =
-            chartData.weekday || [];
+        currentMonthWeeks = getMonthWeeks(currentForecastYear, selectedMonthIndex + 1);
+        selectedWeek = 1;
 
-        makeChart(
+        const weekdayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+        const firstMonthLabel = monthly.length > 0 ? monthly[0].month_label : "Month 1";
+
+        const initialWeekObj = currentMonthWeeks[0];
+        const initialWeekdayData = weekdayOrder.map((name, i) => {
+            if (!initialWeekObj || !initialWeekObj.days[i]) {
+                return 0;
+            }
+            const dateStr = initialWeekObj.days[i];
+            const dayRec = precomputedDailyData[dateStr];
+            if (!dayRec) return 0;
+            return Number((dayRec.totalCalls / (dayRec.intervalCount || 48)).toFixed(2));
+        });
+
+        const titleElem = document.getElementById("weekdayChartTitle");
+        if (titleElem) {
+            titleElem.textContent = `Average calls by weekday — ${firstMonthLabel} (Week 1)`;
+        }
+
+        weekdayChartInstance = makeChart(
             "weekdayChart",
             "bar",
-            weekday.map(
-                x => x.weekday_name
-            ),
+            weekdayOrder,
             [
                 {
-                    label: "Average calls per interval",
-                    data: weekday.map(
-                        x => x.average_calls
-                    )
+                    label: "Average calls per interval (Week 1)",
+                    data: initialWeekdayData,
+                    backgroundColor: "rgba(52, 168, 83, 0.7)",
+                    borderColor: "#1e8e3e",
+                    borderWidth: 1
                 }
             ],
-            "Calls"
+            "Calls",
+            {
+                onClick: (event, elements) => {
+                    if (elements.length) selectDay(elements[0].index);
+                },
+                onHover: (event, elements) => {
+                    const date = elements.length && selectedDateForDay(elements[0].index);
+                    event.native.target.style.cursor = date && precomputedDailyData[date]
+                        ? "pointer" : "default";
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const val = context.raw;
+                                if (selectedWeek !== "all" && !precomputedDailyData[selectedDateForDay(context.dataIndex)]) {
+                                    return " 0 calls (Outside of month/week)";
+                                }
+                                const date = selectedDateForDay(context.dataIndex);
+                                const day = date && precomputedDailyData[date];
+                                return day
+                                    ? ` ${date}: ${val} calls/interval (${day.totalCalls.toLocaleString()} total)`
+                                    : ` Average: ${val} calls/interval`;
+                            }
+                        }
+                    }
+                }
+            }
         );
+
+        renderWeekButtons(currentMonthWeeks.length, selectedWeek);
 
         const time =
             chartData.time_of_day || [];
 
-        makeChart(
+        document.getElementById("timeChartTitle").textContent = "Average calls by time";
+        timeChartInstance = makeChart(
             "timeChart",
             "line",
             time.map(
@@ -1211,83 +1525,122 @@
                     data: time.map(
                         x => x.average_calls
                     ),
-                    borderWidth: 2,
+                    borderColor: "#142d48",
+                    pointBackgroundColor: "#142d48",
+                    pointBorderColor: "#142d48",
+                    borderWidth: 3,
                     pointRadius: 1
                 }
             ],
             "Calls"
         );
+        resetTimeChart();
 
+    }
+
+    function groupTableIntervals(rows, intervalMinutes) {
+        const groups = new Map();
+        for (const row of rows) {
+            // Use forecast wall-clock dates, avoiding browser timezone conversions.
+            const date = row.interval_start.slice(0, 10);
+            const minute = Number(row.interval_start.slice(11, 13)) * 60
+                + Number(row.interval_start.slice(14, 16));
+            const startMinute = Math.floor(minute / intervalMinutes) * intervalMinutes;
+            const key = `${date}T${String(Math.floor(startMinute / 60)).padStart(2, "0")}:${String(startMinute % 60).padStart(2, "0")}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    interval_start: key, startMinute, call_volume: 0,
+                    weightedAht: 0, weightedService: 0,
+                    totalAht: 0, totalService: 0, count: 0,
+                    raw_agents: 0, scheduled_agents: 0
+                });
+            }
+            const group = groups.get(key);
+            const calls = Number(row.call_volume) || 0;
+            const aht = Number(row.aht_seconds) || 0;
+            const service = Number(row.service_level_percent) || 0;
+            group.call_volume += calls;
+            group.weightedAht += calls * aht;
+            group.weightedService += calls * service;
+            group.totalAht += aht;
+            group.totalService += service;
+            group.count += 1;
+            group.raw_agents = Math.max(group.raw_agents, Number(row.raw_agents) || 0);
+            group.scheduled_agents = Math.max(group.scheduled_agents, Number(row.scheduled_agents) || 0);
+        }
+        return [...groups.values()]
+            .sort((a, b) => a.interval_start.localeCompare(b.interval_start))
+            .map(group => {
+                const endMinute = group.startMinute + intervalMinutes;
+                const endTime = `${String(Math.floor(endMinute / 60)).padStart(2, "0")}:${String(endMinute % 60).padStart(2, "0")}`;
+                return {
+                    ...group,
+                    interval_label: `${group.interval_start.replace("T", " ")} - ${endTime}`,
+                    aht_seconds: group.call_volume > 0
+                        ? group.weightedAht / group.call_volume : group.totalAht / group.count,
+                    service_level_percent: group.call_volume > 0
+                        ? group.weightedService / group.call_volume : group.totalService / group.count
+                };
+            });
+    }
+
+    function configureTableDate(rows, forecastYear) {
+        const picker = document.getElementById("tableDate");
+        const previous = picker.value;
+        const dates = [...new Set(rows.map(row => row.interval_start.slice(0, 10)))].sort();
+        const year = String(forecastYear || (dates[0] && dates[0].slice(0, 4)) || "");
+        const availableDates = dates.filter(date => date.slice(0, 4) === year);
+        picker.disabled = availableDates.length === 0;
+        picker.min = availableDates[0] || "";
+        picker.max = availableDates[availableDates.length - 1] || "";
+        picker.value = availableDates.includes(previous) ? previous : (availableDates[0] || "");
     }
 
     function renderTable(rows) {
-
         tableBody.innerHTML = "";
-
-        rows
-            .slice(0, 50)
-            .forEach(
-                row => {
-
-                    const tr =
-                        document.createElement("tr");
-
-                    const values = [
-
-                        row.interval_start,
-
-                        row.call_volume,
-
-                        Number(
-                            row.aht_seconds
-                        ).toFixed(2),
-
-                        Number(
-                            row.traffic_erlangs
-                        ).toFixed(4),
-
-                        row.raw_agents,
-
-                        row.scheduled_agents,
-
-                        Number(
-                            row.service_level_percent
-                        ).toFixed(2),
-
-                        Number(
-                            row.probability_waiting_percent
-                        ).toFixed(2),
-
-                        Number(
-                            row.occupancy_percent
-                        ).toFixed(2),
-
-                        Number(
-                            row.asa_seconds
-                        ).toFixed(2)
-
-                    ];
-
-                    values.forEach(
-                        value => {
-
-                            const td =
-                                document.createElement("td");
-
-                            td.textContent =
-                                value;
-
-                            tr.appendChild(td);
-
-                        }
-                    );
-
-                    tableBody.appendChild(tr);
-
-                }
-            );
-
+        const intervalMinutes = Number(document.getElementById("tableIntervalMinutes").value);
+        const picker = document.getElementById("tableDate");
+        const date = picker.value;
+        const validDate = !picker.disabled && date && picker.validity.valid;
+        const filteredRows = validDate
+            ? rows.filter(row => row.interval_start.slice(0, 10) === date) : [];
+        if (!filteredRows.length) {
+            const tr = document.createElement("tr");
+            const td = document.createElement("td");
+            td.colSpan = 6;
+            td.textContent = !validDate
+                ? "Select a date within the available forecast range."
+                : "No forecast intervals are available for this date.";
+            tr.appendChild(td);
+            tableBody.appendChild(tr);
+            return;
+        }
+        groupTableIntervals(filteredRows, intervalMinutes).forEach(row => {
+            const tr = document.createElement("tr");
+            const values = [
+                row.interval_label,
+                row.call_volume,
+                row.aht_seconds.toFixed(2),
+                row.raw_agents,
+                row.scheduled_agents,
+                row.service_level_percent.toFixed(2)
+            ];
+            values.forEach(value => {
+                const td = document.createElement("td");
+                td.textContent = value;
+                tr.appendChild(td);
+            });
+            tableBody.appendChild(tr);
+        });
     }
+
+    document.getElementById("tableIntervalMinutes").addEventListener("change", () => {
+        renderTable(forecastRows);
+    });
+
+    document.getElementById("tableDate").addEventListener("change", () => {
+        renderTable(forecastRows);
+    });
 
     function csvEscape(value) {
 
@@ -1397,9 +1750,7 @@
 
             formData.append(
                 "interval_minutes",
-                document.getElementById(
-                    "interval"
-                ).value
+                "30"
             );
 
             formData.append(
@@ -1418,9 +1769,7 @@
 
             formData.append(
                 "shrinkage",
-                document.getElementById(
-                    "shrinkage"
-                ).value
+                "30"
             );
 
             formData.append(
@@ -1430,41 +1779,12 @@
 
             formData.append(
                 "forecast_days",
-                document.getElementById(
-                    "forecastDays"
-                ).value
+                "365"
             );
 
-            const intervalMinutes =
-                Number(
-                    document.getElementById(
-                        "interval"
-                    ).value
-                );
-
-            const intervalsPerDay =
-                1440 / intervalMinutes;
-
-            const seasonalPreset =
-                document.getElementById(
-                    "seasonalPeriodPreset"
-                ).value;
-
-            let seasonalPeriod;
-
-            if (seasonalPreset === "weekly") {
-
-                seasonalPeriod =
-                    intervalsPerDay * 7;
-
-            }
-
-            else {
-
-                seasonalPeriod =
-                    intervalsPerDay * 30;
-
-            }
+            const intervalMinutes = 30;
+            const intervalsPerDay = 1440 / intervalMinutes;
+            const seasonalPeriod = intervalsPerDay * 7;
 
             formData.append(
                 "seasonal_period",
@@ -1473,9 +1793,7 @@
 
             formData.append(
                 "trend_lookback_days",
-                document.getElementById(
-                    "trendLookback"
-                ).value
+                "90"
             );
 
             submitButton.disabled =
@@ -1561,6 +1879,7 @@
                 forecastRows =
                     data.forecast || [];
 
+                configureTableDate(forecastRows, data.output_year);
                 renderSummary(data);
 
                 renderCharts(
@@ -1787,6 +2106,12 @@
             }
         );
 
+        const totalHeader = document.createElement("th");
+        totalHeader.textContent = "Total shifts";
+        totalHeader.scope = "col";
+        totalHeader.title = "Working shifts in this month, excluding days off and leave";
+        headerRow.appendChild(totalHeader);
+
         thead.appendChild(
             headerRow
         );
@@ -1907,6 +2232,16 @@
                     }
                 );
 
+                const totalShifts = dates.reduce((total, date) => {
+                    const row = scheduleMap.get(`${agent}|${date}`);
+                    return total + (row && row.status === "WORK" ? 1 : 0);
+                }, 0);
+                const totalCell = document.createElement("td");
+                totalCell.textContent = totalShifts;
+                totalCell.style.fontWeight = "700";
+                totalCell.style.textAlign = "center";
+                tr.appendChild(totalCell);
+
                 tbody.appendChild(
                     tr
                 );
@@ -1923,6 +2258,45 @@
         );
 
     }
+
+    function populateLeaveReplacementAgents() {
+        const select = document.getElementById("leaveReplacementAgent");
+        const hint = document.getElementById("leaveReplacementHint");
+        select.replaceChildren(new Option("Select replacement agent", ""));
+        const target = scheduleRows.find(row =>
+            String(row.agent_id) === leaveAgent.value && row.date === leaveDate.value
+        );
+        if (!target || target.status !== "WORK") {
+            select.disabled = true;
+            hint.textContent = target
+                ? "This agent has no working shift to cover on this date."
+                : "";
+            return;
+        }
+        const candidates = scheduleRows.filter(row =>
+            row.date === leaveDate.value
+            && String(row.agent_id) !== leaveAgent.value
+            && row.shift_code !== target.shift_code
+            && (row.status === "OFF" || row.status === "WORK")
+        ).sort((a, b) =>
+            Number(a.status !== "OFF") - Number(b.status !== "OFF")
+            || String(a.agent_id).localeCompare(String(b.agent_id), undefined, { numeric: true })
+        );
+        const seen = new Set();
+        candidates.forEach(row => {
+            const id = String(row.agent_id);
+            if (seen.has(id)) return;
+            seen.add(id);
+            select.appendChild(new Option(id + " - " + (row.status === "OFF" ? "OFF" : row.shift), id));
+        });
+        select.disabled = candidates.length === 0;
+        hint.textContent = candidates.length
+            ? ""
+            : "No replacement agents are available for this date.";
+    }
+
+    leaveAgent.addEventListener("change", populateLeaveReplacementAgents);
+    leaveDate.addEventListener("change", populateLeaveReplacementAgents);
 
     function populateLeaveAgents() {
 
@@ -1959,6 +2333,7 @@
 
         leaveManagementPanel.hidden =
             agents.length === 0;
+        populateLeaveReplacementAgents();
     }
 
     function updateLeaveDateRange(
@@ -1996,6 +2371,7 @@
             leaveDate.value =
                 monthStart;
         }
+        populateLeaveReplacementAgents();
     }
 
     function populateSwapAgents() {
@@ -2301,7 +2677,10 @@
                                             agentId,
 
                                         leave_date:
-                                            selectedDate
+                                            selectedDate,
+                                        replacement_agent_id:
+                                            document.getElementById("leaveReplacementAgent").value || null,
+                                        auto_assign: false
                                     }
                                 )
                         }

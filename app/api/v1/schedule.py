@@ -79,6 +79,8 @@ def apply_agent_leave(request: AgentLeaveRequest) -> dict:
             shift_requirements=shift_requirements,
             agent_id=request.agent_id,
             leave_date=request.leave_date,
+            replacement_agent_id=request.replacement_agent_id,
+            auto_assign=request.auto_assign,
         )
 
         return {

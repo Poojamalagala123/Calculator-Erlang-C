@@ -426,6 +426,7 @@ def assign_leave_replacement(
     leave_result: dict,
     coverage_result: dict,
     candidates: list[dict],
+    check_rest: bool = True,
 ) -> tuple[pd.DataFrame, dict]:
 
     if schedule.empty:
@@ -572,10 +573,10 @@ def assign_leave_replacement(
         "assignment_type",
     ] = "LEAVE_COVER"
 
-    rest_validation = validate_agent_rest_period(
-        updated_schedule,
-        replacement_agent,
-        leave_date,
+    rest_validation = (
+        validate_agent_rest_period(updated_schedule, replacement_agent, leave_date)
+        if check_rest
+        else {"valid": True, "checked": False, "message": "Rest check skipped for manual leave cover."}
     )
 
     if not rest_validation["valid"]:
@@ -769,6 +770,7 @@ def assign_safe_shift_transfer(
     schedule: pd.DataFrame,
     leave_result: dict,
     transfer_candidates: list[dict],
+    check_rest: bool = True,
 ) -> tuple[pd.DataFrame, dict]:
 
     if schedule.empty:
@@ -875,10 +877,10 @@ def assign_safe_shift_transfer(
         "assignment_type",
     ] = "SHIFT_TRANSFER"
 
-    rest_validation = validate_agent_rest_period(
-        updated_schedule,
-        agent_id,
-        leave_date,
+    rest_validation = (
+        validate_agent_rest_period(updated_schedule, agent_id, leave_date)
+        if check_rest
+        else {"valid": True, "checked": False, "message": "Rest check skipped for manual leave cover."}
     )
 
     if not rest_validation["valid"]:
@@ -936,6 +938,8 @@ def resolve_agent_leave(
     shift_requirements: pd.DataFrame,
     agent_id: str,
     leave_date: str,
+    replacement_agent_id: Optional[str] = None,
+    auto_assign: bool = True,
 ) -> tuple[pd.DataFrame, dict]:
 
     if schedule.empty:
@@ -982,6 +986,58 @@ def resolve_agent_leave(
                 "Leave approved. Existing staffing "
                 "is still sufficient."
             ),
+        }
+
+    if replacement_agent_id is not None or not auto_assign:
+        selected_agent = str(replacement_agent_id or "").strip()
+        if not selected_agent:
+            raise ValueError("Select a replacement agent to cover this leave shift.")
+
+        off_candidates = [
+            candidate for candidate in find_leave_replacement_candidates(
+                updated_schedule, leave_result
+            )
+            if str(candidate["agent_id"]) == selected_agent
+        ]
+        if off_candidates:
+            updated_schedule, assignment = assign_leave_replacement(
+                updated_schedule, leave_result, coverage_before,
+                off_candidates, check_rest=False,
+            )
+            method = "OFF_AGENT_COVER"
+            assignment_key = "replacement"
+        else:
+            transfer_candidates = [
+                candidate for candidate in find_safe_shift_transfer_candidates(
+                    updated_schedule, shift_requirements, leave_result
+                )
+                if str(candidate["agent_id"]) == selected_agent
+            ]
+            if not transfer_candidates:
+                raise ValueError(
+                    "The selected replacement is not eligible. Choose an OFF agent "
+                    "within the weekly work limit, or an agent on a different shift "
+                    "whose transfer preserves staffing coverage."
+                )
+            updated_schedule, assignment = assign_safe_shift_transfer(
+                updated_schedule, leave_result, transfer_candidates, check_rest=False,
+            )
+            method = "SHIFT_TRANSFER"
+            assignment_key = "transfer"
+
+        coverage_after = calculate_leave_coverage(
+            updated_schedule, shift_requirements, leave_result
+        )
+        if not coverage_after.get("coverage_ok"):
+            raise ValueError("The selected replacement does not resolve the staffing shortage.")
+        return updated_schedule, {
+            "resolved": True,
+            "method": method,
+            "leave": leave_result,
+            "coverage_before": coverage_before,
+            "coverage_after": coverage_after,
+            assignment_key: assignment,
+            "message": f"Leave approved. {selected_agent} assigned to cover the shift.",
         }
 
     off_candidates = find_leave_replacement_candidates(
