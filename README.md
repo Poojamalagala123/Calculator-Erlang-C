@@ -6,7 +6,7 @@ FastAPI application for forecasting contact-centre call demand from historical C
 
 **Local dashboard:** `http://127.0.0.1:8000/`
 
-The browser submits a background forecast job, displays progress and charts, builds monthly schedules, and supports leave replacements, shift swaps, and yearly CSV downloads. [API documentation](api_documentation.md) contains endpoint examples and response details.
+The browser submits a background forecast job, displays progress and charts, builds monthly schedules, displays daily scheduled-agent counts, and supports yearly CSV downloads. [API documentation](api_documentation.md) contains endpoint examples and response details.
 
 ## Quick start
 
@@ -77,7 +77,7 @@ Calculator-Erlang-C/
 3. Wait for the background job. Review summaries and monthly, weekday, and time-of-day charts.
 4. Select a date and table interval to inspect staffing. Download the hourly forecast for the whole output year.
 5. Select a schedule month and optionally enter **Available agent count**. Leave it blank for automatic minimum-headcount estimation, then select **Generate Monthly Schedule**.
-6. View the whole roster or filter by calendar week. Apply leave with a selected replacement, or swap two agents' shifts.
+6. Review the staffing summary and daily scheduled-agent counts for each shift.
 7. Select **Download Yearly Roster CSV** to export 12 monthly tables, generating missing months as needed.
 
 ## STL inputs
@@ -283,17 +283,15 @@ Interval,Calls,AHT,Raw agents,Scheduled agents,Service level %
 
 A complete annual forecast produces 8,760 CSV data rows, or 8,784 in a leap year. Hour labels use forecast wall-clock dates, and the final hour ends at `24:00`. API JSON retains the original interval rows and additional staffing fields.
 
-### Roster week filter
+### Daily scheduled agents
 
-The roster defaults to **Whole month**. **Week 1**, **Week 2**, etc. represent Monday-Sunday calendar weeks clipped to the month. For April 2026, Week 1 is Wednesday April 1-Sunday April 5, and Week 2 is April 6-12. Four, five, or six buttons appear as needed, without date ranges in their labels.
-
-Selecting a week filters date columns and recalculates **Total shifts** for the visible dates. Leave/swap updates preserve the selection. Generating a new roster resets to **Whole month**.
+The dashboard shows scheduled-agent counts for every day of the selected month, grouped by the three 8-hour shifts. Only working assignments count. The agent-level monthly roster, leave management, and shift swap controls are not displayed; the leave and swap API endpoints remain available.
 
 ### Yearly roster CSV
 
 **Download Yearly Roster CSV** creates `agent_roster_<year>.csv` with 12 January-December sections separated by blank rows. Each section contains a month title, an `Agent` column, each calendar day formatted like `01 Wed`, and `Total shifts`. Rows contain the dashboard's shift labels, `OFF`, or `LEAVE`. Totals count `status: WORK` assignments only.
 
-The download exports full months regardless of the week filter. It reuses monthly rosters cached during the current forecast session, including leave and swap edits. Missing months are generated sequentially through `/api/v1/schedule/monthly`, using that month's forecast rows and the agent-count setting from the most recent successful dashboard generation. Null headcount calculates each missing month's minimum independently. Cached months keep their original staffing settings and edits.
+The download exports full months. It reuses monthly schedules cached during the current forecast session. Missing months are generated sequentially through `/api/v1/schedule/monthly`, using that month's forecast rows and the agent-count setting from the most recent successful dashboard generation. Null headcount calculates each missing month's minimum independently. Cached months keep their original staffing settings.
 
 Missing forecast data, insufficient requested headcount, or monthly-generation errors stop the download without saving a partial CSV. Successful generated months remain cached for retries. A returned monthly coverage shortage is not itself treated as an export error.
 
