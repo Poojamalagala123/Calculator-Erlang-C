@@ -281,21 +281,6 @@
             z-index: 3;
         }
 
-        .shift-off {
-            color: #777;
-            font-weight: 700;
-        }
-
-        .shift-leave {
-            font-weight: 700;
-        }
-
-        .shift-cover,
-        .shift-transfer,
-        .shift-swap {
-            font-weight: 700;
-        }
-
         @media (max-width: 600px) {
             .chart-grid {
                 grid-template-columns: 1fr;
@@ -744,77 +729,6 @@
 
     </div>
 
-    <div
-        class="panel"
-        id="leaveManagementPanel"
-        hidden
-    >
-
-        <h2>Agent Leave Management</h2>
-
-        <p class="note">
-            Select an agent, leave date, and replacement. OFF agents appear first, followed by agents on other shifts.
-            Staffing coverage and weekly work limits apply. Minimum rest is not checked for leave replacements.
-        </p>
-
-        <div class="form-grid">
-
-            <div>
-                <label for="leaveAgent">Agent</label>
-
-                <select id="leaveAgent">
-                    <option value="">Select agent</option>
-                </select>
-            </div>
-
-            <div>
-                <label for="leaveDate">Leave date</label>
-
-                <input
-                    id="leaveDate"
-                    type="date"
-                >
-            </div>
-            <div>
-                <label for="leaveReplacementAgent">Replacement agent</label>
-                <select id="leaveReplacementAgent" disabled>
-                    <option value="">Select an agent and date first</option>
-                </select>
-                <div id="leaveReplacementHint" class="note" aria-live="polite"></div>
-            </div>
-
-            <div class="actions">
-
-                <button
-                    id="applyLeaveButton"
-                    type="button"
-                >
-                    Apply Leave
-                </button>
-
-            </div>
-
-        </div>
-
-        <div
-            id="leaveStatus"
-            class="status" role="status" aria-live="polite"
-        ></div>
-
-    </div>
-
-    <div class="panel" id="shiftSwapPanel" hidden>
-        <h2>Shift Swap Management</h2>
-        <p class="note">Select a date and two working agents. The system swaps their shifts only when both agents are on different shifts and the minimum rest-period rule remains safe.</p>
-        <div class="form-grid">
-            <div><label for="swapDate">Swap date</label><input id="swapDate" type="date"></div>
-            <div><label for="swapAgent1">Agent 1</label><select id="swapAgent1"><option value="">Select agent</option></select></div>
-            <div><label for="swapAgent2">Agent 2</label><select id="swapAgent2"><option value="">Select agent</option></select></div>
-            <div class="actions"><button id="applySwapButton" type="button">Apply Shift Swap</button></div>
-        </div>
-        <div id="swapStatus" class="status" role="status" aria-live="polite"></div>
-    </div>
-
     <section
         id="scheduleResults"
         hidden
@@ -914,21 +828,21 @@
         </div>
 
         <div class="table-box">
-
-            <h2>Agent Monthly Roster</h2>
-
-            <div id="rosterWeekSelector" class="week-selector" role="group" aria-label="Roster week filter"></div>
-
-            <p class="note">
-                Each row represents one agent.
-                Each column represents one calendar day.
-            </p>
-
-            <div
-                id="agentScheduleTable"
-                class="schedule-table-wrapper"
-            ></div>
-
+            <h2>Daily Scheduled Agents</h2>
+            <p class="note">Scheduled agent counts for every date in the roster month, excluding days off and leave.</p>
+            <div class="schedule-table-wrapper">
+                <table class="schedule-table" aria-label="Daily scheduled agents by shift">
+                    <thead>
+                        <tr>
+                            <th scope="col">Date</th>
+                            <th scope="col">1st shift (00:00-08:00)</th>
+                            <th scope="col">2nd shift (08:00-16:00)</th>
+                            <th scope="col">3rd shift (16:00-00:00)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dailyShiftCountsBody"></tbody>
+                </table>
+            </div>
         </div>
 
     </section>
@@ -1000,28 +914,6 @@
 
     const downloadScheduleButton =
         document.getElementById("downloadScheduleButton");
-
-    const leaveManagementPanel =
-        document.getElementById("leaveManagementPanel");
-
-    const leaveAgent =
-        document.getElementById("leaveAgent");
-
-    const leaveDate =
-        document.getElementById("leaveDate");
-
-    const applyLeaveButton =
-        document.getElementById("applyLeaveButton");
-
-    const leaveStatus =
-        document.getElementById("leaveStatus");
-
-    const shiftSwapPanel = document.getElementById("shiftSwapPanel");
-    const swapDate = document.getElementById("swapDate");
-    const swapAgent1 = document.getElementById("swapAgent1");
-    const swapAgent2 = document.getElementById("swapAgent2");
-    const applySwapButton = document.getElementById("applySwapButton");
-    const swapStatus = document.getElementById("swapStatus");
 
     filesInput.addEventListener(
         "change",
@@ -1778,15 +1670,6 @@
             scheduleResults.hidden =
                 true;
 
-            leaveManagementPanel.hidden =
-                true;
-
-            leaveStatus.textContent =
-                "";
-
-            shiftSwapPanel.hidden = true;
-            swapStatus.textContent = "";
-
             scheduleRows = [];
 
             scheduleSummary = null;
@@ -1958,443 +1841,52 @@
 
     }
 
-    let selectedRosterWeek = "all";
-    let rosterFilterMonth = "";
-
-    function renderRosterWeekFilter(rows) {
-        const container = document.getElementById("rosterWeekSelector");
-        container.replaceChildren();
-        const month = rows.length ? rows[0].date.slice(0, 7) : "";
-        if (month !== rosterFilterMonth) {
-            selectedRosterWeek = "all";
-            rosterFilterMonth = month;
-        }
-        if (!month) return null;
-
-        const [year, monthNumber] = month.split("-").map(Number);
-        const weeks = getMonthWeeks(year, monthNumber);
-        if (selectedRosterWeek !== "all" && !weeks[selectedRosterWeek - 1]) {
-            selectedRosterWeek = "all";
-        }
-        const options = [{ value: "all", label: "Whole month" }];
-        weeks.forEach(week => {
-            options.push({
-                value: week.weekNumber,
-                label: `Week ${week.weekNumber}`
-            });
-        });
-        options.forEach(option => {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.className = `week-btn${selectedRosterWeek === option.value ? " active" : ""}`;
-            button.textContent = option.label;
-            button.dataset.week = option.value;
-            button.setAttribute("aria-pressed", String(selectedRosterWeek === option.value));
-            button.addEventListener("click", () => {
-                selectedRosterWeek = option.value;
-                renderAgentSchedule(scheduleRows);
-                container.querySelector(`[data-week="${option.value}"]`).focus();
-            });
-            container.appendChild(button);
-        });
-        return selectedRosterWeek === "all"
-            ? null
-            : new Set(Object.values(weeks[selectedRosterWeek - 1].days));
-    }
-
-    function renderAgentSchedule(rows) {
-        if (rows.length) monthlyRosterCache.set(rows[0].date.slice(0, 7), rows);
-        const visibleDates = renderRosterWeekFilter(rows);
-
-        const container =
-            document.getElementById(
-                "agentScheduleTable"
-            );
-
-        container.innerHTML =
-            "";
-
+    function renderDailyShiftCounts(rows) {
+        const body = document.getElementById("dailyShiftCountsBody");
+        body.replaceChildren();
         if (!rows.length) {
-
-            container.textContent =
-                "No schedule available.";
-
-            return;
-
-        }
-
-        const agents =
-            [
-                ...new Set(
-                    rows.map(
-                        row => row.agent_id
-                    )
-                )
-            ];
-
-        const dates =
-            [
-                ...new Set(
-                    rows.map(
-                        row => row.date
-                    )
-                )
-            ].sort().filter(date => !visibleDates || visibleDates.has(date));
-
-        const scheduleMap =
-            new Map();
-
-        rows.forEach(
-            row => {
-
-                scheduleMap.set(
-                    `${row.agent_id}|${row.date}`,
-                    row
-                );
-
-            }
-        );
-
-        const table =
-            document.createElement(
-                "table"
-            );
-
-        table.className =
-            "schedule-table";
-
-        const thead =
-            document.createElement(
-                "thead"
-            );
-
-        const headerRow =
-            document.createElement(
-                "tr"
-            );
-
-        const agentHeader =
-            document.createElement(
-                "th"
-            );
-
-        agentHeader.textContent =
-            "Agent";
-
-        headerRow.appendChild(
-            agentHeader
-        );
-
-        dates.forEach(
-            date => {
-
-                const th =
-                    document.createElement(
-                        "th"
-                    );
-
-                th.textContent = rosterDateLabel(date);
-
-                headerRow.appendChild(
-                    th
-                );
-
-            }
-        );
-
-        const totalHeader = document.createElement("th");
-        totalHeader.textContent = "Total shifts";
-        totalHeader.scope = "col";
-        totalHeader.title = selectedRosterWeek === "all"
-            ? "Working shifts in this month, excluding days off and leave"
-            : "Working shifts in the selected week, excluding days off and leave";
-        headerRow.appendChild(totalHeader);
-
-        thead.appendChild(
-            headerRow
-        );
-
-        table.appendChild(
-            thead
-        );
-
-        const tbody =
-            document.createElement(
-                "tbody"
-            );
-
-        agents.forEach(
-            agent => {
-
-                const tr =
-                    document.createElement(
-                        "tr"
-                    );
-
-                const nameCell =
-                    document.createElement(
-                        "td"
-                    );
-
-                nameCell.textContent =
-                    agent;
-
-                tr.appendChild(
-                    nameCell
-                );
-
-                dates.forEach(
-                    date => {
-
-                        const td =
-                            document.createElement(
-                                "td"
-                            );
-
-                        const scheduleRow =
-                            scheduleMap.get(
-                                `${agent}|${date}`
-                            )
-                            || {
-                                shift: "OFF",
-                                status: "OFF",
-                                assignment_type: null
-                            };
-
-                        const shift =
-                            scheduleRow.shift
-                            || "OFF";
-
-                        td.textContent =
-                            shift;
-
-                        if (
-                            scheduleRow.status === "LEAVE"
-                            || shift === "LEAVE"
-                        ) {
-
-                            td.className =
-                                "shift-leave";
-
-                            td.title =
-                                scheduleRow.original_shift
-                                    ? `Leave - original shift: ${scheduleRow.original_shift}`
-                                    : "Leave";
-
-                        }
-
-                        else if (
-                            scheduleRow.assignment_type === "LEAVE_COVER"
-                        ) {
-
-                            td.className =
-                                "shift-cover";
-
-                            td.title =
-                                `Leave cover${scheduleRow.previous_shift ? ` - previous: ${scheduleRow.previous_shift}` : ""}`;
-
-                        }
-
-                        else if (
-                            scheduleRow.assignment_type === "SHIFT_TRANSFER"
-                        ) {
-
-                            td.className =
-                                "shift-transfer";
-
-                            td.title =
-                                `Shift transfer${scheduleRow.previous_shift ? ` - previous: ${scheduleRow.previous_shift}` : ""}`;
-
-                        }
-
-                        else if (
-                            scheduleRow.assignment_type === "SHIFT_SWAP"
-                        ) {
-                            td.className = "shift-swap";
-                            td.title = `Shift swap${scheduleRow.previous_shift ? ` - previous: ${scheduleRow.previous_shift}` : ""}`;
-                        }
-
-                        else if (
-                            shift === "OFF"
-                        ) {
-
-                            td.className =
-                                "shift-off";
-
-                        }
-
-                        tr.appendChild(
-                            td
-                        );
-
-                    }
-                );
-
-                const totalShifts = dates.reduce((total, date) => {
-                    const row = scheduleMap.get(`${agent}|${date}`);
-                    return total + (row && row.status === "WORK" ? 1 : 0);
-                }, 0);
-                const totalCell = document.createElement("td");
-                totalCell.textContent = totalShifts;
-                totalCell.style.fontWeight = "700";
-                totalCell.style.textAlign = "center";
-                tr.appendChild(totalCell);
-
-                tbody.appendChild(
-                    tr
-                );
-
-            }
-        );
-
-        table.appendChild(
-            tbody
-        );
-
-        container.appendChild(
-            table
-        );
-
-    }
-
-    function populateLeaveReplacementAgents() {
-        const select = document.getElementById("leaveReplacementAgent");
-        const hint = document.getElementById("leaveReplacementHint");
-        select.replaceChildren(new Option("Select replacement agent", ""));
-        const target = scheduleRows.find(row =>
-            String(row.agent_id) === leaveAgent.value && row.date === leaveDate.value
-        );
-        if (!target || target.status !== "WORK") {
-            select.disabled = true;
-            hint.textContent = target
-                ? "This agent has no working shift to cover on this date."
-                : "";
+            const tr = document.createElement("tr");
+            const cell = document.createElement("td");
+            cell.colSpan = 4;
+            cell.textContent = "No schedule available.";
+            tr.appendChild(cell);
+            body.appendChild(tr);
             return;
         }
-        const candidates = scheduleRows.filter(row =>
-            row.date === leaveDate.value
-            && String(row.agent_id) !== leaveAgent.value
-            && row.shift_code !== target.shift_code
-            && (row.status === "OFF" || row.status === "WORK")
-        ).sort((a, b) =>
-            Number(a.status !== "OFF") - Number(b.status !== "OFF")
-            || String(a.agent_id).localeCompare(String(b.agent_id), undefined, { numeric: true })
-        );
-        const seen = new Set();
-        candidates.forEach(row => {
-            const id = String(row.agent_id);
-            if (seen.has(id)) return;
-            seen.add(id);
-            select.appendChild(new Option(id + " - " + (row.status === "OFF" ? "OFF" : row.shift), id));
+
+        const month = rows[0].date.slice(0, 7);
+        const [year, monthNumber] = month.split("-").map(Number);
+        const daysInMonth = new Date(year, monthNumber, 0).getDate();
+        const shifts = ["NIGHT", "MORNING", "EVENING"];
+        const counts = new Map();
+        for (let day = 1; day <= daysInMonth; day++) {
+            const date = `${month}-${String(day).padStart(2, "0")}`;
+            counts.set(date, shifts.map(() => new Set()));
+        }
+        rows.forEach(row => {
+            const dailyCounts = counts.get(row.date);
+            const shiftIndex = shifts.indexOf(row.shift_code);
+            if (dailyCounts && row.status === "WORK" && shiftIndex !== -1) {
+                dailyCounts[shiftIndex].add(row.agent_id);
+            }
         });
-        select.disabled = candidates.length === 0;
-        hint.textContent = candidates.length
-            ? ""
-            : "No replacement agents are available for this date.";
-    }
-
-    leaveAgent.addEventListener("change", populateLeaveReplacementAgents);
-    leaveDate.addEventListener("change", populateLeaveReplacementAgents);
-
-    function populateLeaveAgents() {
-
-        leaveAgent.innerHTML =
-            '<option value="">Select agent</option>';
-
-        const agents = [
-            ...new Set(
-                scheduleRows.map(
-                    row => row.agent_id
-                )
-            )
-        ].sort();
-
-        agents.forEach(
-            agent => {
-
-                const option =
-                    document.createElement(
-                        "option"
-                    );
-
-                option.value =
-                    agent;
-
-                option.textContent =
-                    agent;
-
-                leaveAgent.appendChild(
-                    option
-                );
-            }
-        );
-
-        leaveManagementPanel.hidden =
-            agents.length === 0;
-        populateLeaveReplacementAgents();
-    }
-
-    function updateLeaveDateRange(
-        year,
-        month
-    ) {
-
-        const monthStart =
-            `${year}-${String(month).padStart(2, "0")}-01`;
-
-        const monthEndDate =
-            new Date(
-                year,
-                month,
-                0
-            );
-
-        const monthEnd =
-            `${year}-${String(month).padStart(2, "0")}-${String(
-                monthEndDate.getDate()
-            ).padStart(2, "0")}`;
-
-        leaveDate.min =
-            monthStart;
-
-        leaveDate.max =
-            monthEnd;
-
-        if (
-            !leaveDate.value
-            || leaveDate.value < monthStart
-            || leaveDate.value > monthEnd
-        ) {
-
-            leaveDate.value =
-                monthStart;
-        }
-        populateLeaveReplacementAgents();
-    }
-
-    function populateSwapAgents() {
-        const agents = [...new Set(scheduleRows.map(row => row.agent_id))].sort();
-        [swapAgent1, swapAgent2].forEach(select => {
-            const current = select.value;
-            select.innerHTML = '<option value="">Select agent</option>';
-            agents.forEach(agent => {
-                const option = document.createElement("option");
-                option.value = agent;
-                option.textContent = agent;
-                select.appendChild(option);
+        counts.forEach((dailyCounts, date) => {
+            const tr = document.createElement("tr");
+            const dateCell = document.createElement("td");
+            dateCell.textContent = date;
+            tr.appendChild(dateCell);
+            dailyCounts.forEach(agents => {
+                const cell = document.createElement("td");
+                cell.textContent = agents.size;
+                tr.appendChild(cell);
             });
-            if (agents.includes(current)) select.value = current;
+            body.appendChild(tr);
         });
-        shiftSwapPanel.hidden = agents.length < 2;
     }
 
-    function updateSwapDateRange(year, month) {
-        const start = `${year}-${String(month).padStart(2, "0")}-01`;
-        const endDate = new Date(year, month, 0);
-        const end = `${year}-${String(month).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
-        swapDate.min = start;
-        swapDate.max = end;
-        if (!swapDate.value || swapDate.value < start || swapDate.value > end) swapDate.value = start;
+    function renderScheduleResults(rows) {
+        renderDailyShiftCounts(rows);
+        if (rows.length) monthlyRosterCache.set(rows[0].date.slice(0, 7), rows);
     }
 
     generateScheduleButton.addEventListener(
@@ -2521,16 +2013,6 @@
                     data.schedule
                     || [];
 
-                populateLeaveAgents();
-
-                updateLeaveDateRange(
-                    year,
-                    month
-                );
-
-                populateSwapAgents();
-                updateSwapDateRange(year, month);
-
                 rosterAgentCount = payload.agent_count ?? null;
                 scheduleSummary =
                     data.summary;
@@ -2539,8 +2021,7 @@
                     scheduleSummary
                 );
 
-                selectedRosterWeek = "all";
-                renderAgentSchedule(
+                renderScheduleResults(
                     scheduleRows
                 );
 
@@ -2588,215 +2069,6 @@
         }
     );
 
-    applyLeaveButton.addEventListener(
-        "click",
-        async () => {
-
-            const agentId =
-                leaveAgent.value;
-
-            const selectedDate =
-                leaveDate.value;
-
-            if (!agentId) {
-
-                leaveStatus.className =
-                    "status error";
-
-                leaveStatus.textContent =
-                    "Please select an agent.";
-
-                return;
-            }
-
-            if (!selectedDate) {
-
-                leaveStatus.className =
-                    "status error";
-
-                leaveStatus.textContent =
-                    "Please select a leave date.";
-
-                return;
-            }
-
-            if (!forecastRows.length) {
-
-                leaveStatus.className =
-                    "status error";
-
-                leaveStatus.textContent =
-                    "Forecast data is unavailable.";
-
-                return;
-            }
-
-            if (!scheduleRows.length) {
-
-                leaveStatus.className =
-                    "status error";
-
-                leaveStatus.textContent =
-                    "Generate a monthly schedule first.";
-
-                return;
-            }
-
-            applyLeaveButton.disabled =
-                true;
-
-            leaveStatus.className =
-                "status";
-
-            leaveStatus.textContent =
-                "Processing leave request...";
-
-            try {
-
-                const response =
-                    await fetch(
-                        "/api/v1/schedule/leave",
-                        {
-                            method: "POST",
-
-                            headers: {
-                                "Content-Type":
-                                    "application/json"
-                            },
-
-                            body:
-                                JSON.stringify(
-                                    {
-                                        forecast:
-                                            forecastRows,
-
-                                        schedule:
-                                            scheduleRows,
-
-                                        agent_id:
-                                            agentId,
-
-                                        leave_date:
-                                            selectedDate,
-                                        replacement_agent_id:
-                                            document.getElementById("leaveReplacementAgent").value || null,
-                                        auto_assign: false
-                                    }
-                                )
-                        }
-                    );
-
-                const data =
-                    await response.json();
-
-                if (!response.ok) {
-
-                    throw new Error(
-                        data.detail
-                        || "Leave processing failed."
-                    );
-                }
-
-                scheduleRows =
-                    data.schedule
-                    || [];
-
-                renderAgentSchedule(
-                    scheduleRows
-                );
-
-                populateLeaveAgents();
-                populateSwapAgents();
-
-                const result =
-                    data.result
-                    || {};
-
-                if (result.resolved) {
-
-                    leaveStatus.className =
-                        "status success";
-
-                    leaveStatus.textContent =
-                        result.message
-                        || "Leave resolved successfully.";
-
-                }
-
-                else {
-
-                    leaveStatus.className =
-                        "status error";
-
-                    leaveStatus.textContent =
-                        result.message
-                        || "Leave could not be covered safely.";
-
-                }
-
-                downloadScheduleButton.disabled =
-                    !scheduleRows.length;
-
-            }
-
-            catch (error) {
-
-                leaveStatus.className =
-                    "status error";
-
-                leaveStatus.textContent =
-                    error.message;
-
-            }
-
-            finally {
-
-                applyLeaveButton.disabled =
-                    false;
-
-            }
-
-        }
-    );
-
-    applySwapButton.addEventListener("click", async () => {
-        const agent1 = swapAgent1.value;
-        const agent2 = swapAgent2.value;
-        const selectedDate = swapDate.value;
-
-        if (!selectedDate) { swapStatus.className = "status error"; swapStatus.textContent = "Please select a swap date."; return; }
-        if (!agent1 || !agent2) { swapStatus.className = "status error"; swapStatus.textContent = "Please select both agents."; return; }
-        if (agent1 === agent2) { swapStatus.className = "status error"; swapStatus.textContent = "Please select two different agents."; return; }
-        if (!scheduleRows.length) { swapStatus.className = "status error"; swapStatus.textContent = "Generate a monthly schedule first."; return; }
-
-        applySwapButton.disabled = true;
-        swapStatus.className = "status";
-        swapStatus.textContent = "Processing shift swap...";
-
-        try {
-            const response = await fetch("/api/v1/schedule/swap", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({schedule: scheduleRows, agent_1: agent1, agent_2: agent2, swap_date: selectedDate})
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.detail || "Shift swap failed.");
-            scheduleRows = data.schedule || [];
-            renderAgentSchedule(scheduleRows);
-            populateLeaveAgents();
-            populateSwapAgents();
-            const result = data.result || {};
-            swapStatus.className = "status success";
-            swapStatus.textContent = result.message || "Shift swap completed successfully.";
-            downloadScheduleButton.disabled = !scheduleRows.length;
-        } catch (error) {
-            swapStatus.className = "status error";
-            swapStatus.textContent = error.message;
-        } finally {
-            applySwapButton.disabled = false;
-        }
-    });
-
     function rosterCsvSection(rows, year, month) {
         const monthLabel = new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
         const dates = [...new Set(rows.map(row => row.date))].sort();
@@ -2839,7 +2111,7 @@
                 if (forecastRows !== exportForecast) throw new Error("Forecast changed during export. Generate a roster and download again.");
                 if (!response.ok) throw new Error(`Cannot generate ${key}: ${typeof data.detail === "string" ? data.detail : "Schedule generation failed."}`);
                 if (!data.schedule?.length) throw new Error(`No roster returned for ${key}.`);
-                // Preserve any edits made in the dashboard while this request was running.
+                // Preserve a schedule generated in the dashboard while this request was running.
                 if (!monthlyRosterCache.has(key)) monthlyRosterCache.set(key, data.schedule);
             }
             if (forecastRows !== exportForecast) throw new Error("Forecast changed during export. Generate a roster and download again.");
