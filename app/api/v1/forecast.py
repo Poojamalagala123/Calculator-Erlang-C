@@ -34,7 +34,7 @@ async def _save_upload(upload: UploadFile, destination: Path) -> None:
 
 @router.post("/stl-forecast")
 async def stl_forecast(
-    files: Annotated[list[UploadFile], File(description="One or more full-year CDR CSV files")],
+    files: Annotated[list[UploadFile], File(description="One or more CDR CSV files with at least one day of valid records")],
     interval_minutes: Annotated[int, Form()] = 30,
     forecast_days: Annotated[int, Form()] = 365,
     seasonal_period: Annotated[int | None, Form()] = None,
@@ -46,7 +46,7 @@ async def stl_forecast(
     include_forecast_rows: Annotated[bool, Form()] = True,
 ) -> dict:
     if not files:
-        raise HTTPException(status_code=400, detail="Upload at least one yearly CDR dataset.")
+        raise HTTPException(status_code=400, detail="Upload at least one CDR dataset.")
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(status_code=400, detail=f"Upload no more than {MAX_UPLOAD_FILES} files at a time.")
     if forecast_days < 1 or forecast_days > MAX_FORECAST_DAYS:
@@ -84,7 +84,7 @@ async def stl_forecast(
                 **summary,
                 "parameters": {
                     "interval_minutes": interval_minutes,
-                    "forecast_days": forecast_days,
+                    "forecast_days": summary["days"],
                     "seasonal_period": summary["seasonal_period"],
                     "trend_lookback_days": trend_lookback_days,
                     "target_seconds": target_seconds,
@@ -110,7 +110,7 @@ async def stl_forecast(
 
 @router.post("/stl-forecast/async")
 async def stl_forecast_async(
-    files: Annotated[list[UploadFile], File(description="One or more full-year CDR CSV files")],
+    files: Annotated[list[UploadFile], File(description="One or more CDR CSV files with at least one day of valid records")],
     interval_minutes: Annotated[int, Form()] = 30,
     forecast_days: Annotated[int, Form()] = 365,
     seasonal_period: Annotated[int | None, Form()] = None,
@@ -127,7 +127,7 @@ async def stl_forecast_async(
     or streamed via SSE at /api/v1/jobs/{job_id}/stream.
     """
     if not files:
-        raise HTTPException(status_code=400, detail="Upload at least one yearly CDR dataset.")
+        raise HTTPException(status_code=400, detail="Upload at least one CDR dataset.")
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(status_code=400, detail=f"Upload no more than {MAX_UPLOAD_FILES} files at a time.")
     if forecast_days < 1 or forecast_days > MAX_FORECAST_DAYS:

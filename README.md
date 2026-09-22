@@ -72,7 +72,7 @@ Calculator-Erlang-C/
 
 ## Dashboard workflow
 
-1. Upload historical CDR files, one calendar year per file.
+1. Upload one or more historical CDR files containing at least one day of valid records.
 2. Set **Target answer seconds** and **Target service level %**, then select **Create STL forecast**.
 3. Wait for the background job. Review summaries and monthly, weekday, and time-of-day charts.
 4. Select a date and table interval to inspect staffing. Download the hourly forecast for the whole output year.
@@ -88,7 +88,7 @@ The forecast form exposes these three inputs. Other forecasting parameters are s
 
 | Dashboard input | Request field | Initial value | Behaviour |
 |---|---|---|---|
-| Upload Historical CDR Data | `files` | Required | Multiple `.csv` or `.txt` files; one distinct historical year per file |
+| Upload Historical CDR Data | `files` | Required | Multiple `.csv` or `.txt` files; at least one valid calendar day is required |
 | Target answer seconds | `target_seconds` | `20` | Number of seconds; browser minimum `0`, step `0.01` |
 | Target service level % | `target_service_level` | `80` | Browser range `0.01`-`99.99`, step `0.01`; API percentage conversion described below |
 
@@ -131,7 +131,24 @@ Valid interval examples include `5`, `10`, `15`, `20`, `30`, `60`, `120`, `240`,
 
 ## CDR input and cleaning
 
-Files have seven columns in this order, with no header:
+The application accepts the original seven-column format without a header, or the header-based call-export format shown below.
+
+### Header-based call export
+
+These columns are mapped as follows:
+
+| Export column | Forecast meaning |
+|---|---|
+| `Call ID` | Unique call identifier |
+| `Date` | Call date and time; 24-hour timestamps are accepted |
+| `Caller ID` | Calling source |
+| `Queue` | Destination or queue |
+| `Talk time` | Handle time; formats such as `00d 00h 00m 34s` are accepted |
+| `Agent`, `Wait time`, `Ringing time`, `Entry`, `Exit`, `Transferred`, `Dumped`, `Ended` | Retained as source context where present; `Talk time` determines answered calls |
+
+For this format, rows with a positive `Talk time` are treated as answered calls.
+
+### Canonical headerless format
 
 ```text
 source,destination,call_datetime,duration,disposition,unique_id,caller_id
@@ -151,28 +168,19 @@ The reader tries UTF-16 with tabs, UTF-8 with BOM and commas, then Latin-1 with 
 
 Cleaning removes unparseable dates/durations, missing source/destination values, excluded destinations/dispositions, and durations outside 1 second to 4 hours inclusive. These cleaning defaults are internal function settings, not forecast form fields.
 
-Every file must retain at least one valid answered call and exactly one calendar year after cleaning. Duplicate years across files are rejected. Full-year data is expected for forecasting quality, but the implementation does not verify that calls cover every month: it fills the year's interval grid with zero-call intervals where data is absent. Input years need not be consecutive.
+Every file must retain at least one valid answered call. Records may cover partial days, partial months, multiple years, or overlapping files. At least one calendar day of valid records is required overall; missing dates are not rejected.
 
 ## Forecast calculations
 
-### Historical series and STL
+### Historical series and rolling prediction
 
-For each historical year, the application sums calls and handle time into fixed intervals, computes AHT as handle time divided by calls, and fills a complete calendar-year interval grid. Historical February 29 intervals are removed before the yearly frames are concatenated in chronological order.
+The application combines all cleaned records into fixed intervals without requiring complete calendar years. Forecasting starts on the day after the latest available record.
 
-STL decomposes historical calls into trend, seasonality, and residuals. The implementation uses robust fitting, a seasonal smoother length of 7, `seasonal_jump=1`, and calculated trend/low-pass interpolation jumps. These are implementation settings, not public request fields.
-
-Future calls are calculated by:
-
-1. Fitting a line to the last `trend_lookback_days` of the fitted trend.
-2. Extrapolating that line over the forecast horizon.
-3. Repeating the final fitted seasonal cycle over the same horizon.
-4. Adding trend and seasonality, rounding to whole calls, and clipping negative values to zero.
-
-Residual noise is not extrapolated. Future AHT comes from historical call-weighted AHT for the corresponding weekday/time slot, with global historical AHT as a fallback.
+Future calls are calculated recursively. With fewer than seven recorded calendar days, the system predicts only the next day; for example, Aug 30 and Aug 31 can be used to predict Sep 1, but Sep 2 is not predicted until more call-detail days are available. After seven recorded days, the first week uses expanding prior-day profiles, later days use prior weekly history, and the first year expands to monthly and then prior-year same-period profiles. New records are included in the available history whenever they are supplied.
 
 ### Forecast calendar
 
-`output_year` is the latest historical year plus one. Forecasts start on January 1 at midnight. The annual request `forecast_days=365` covers January 1-December 31, including February 29 in leap years. Other horizon values keep their specified count of consecutive calendar days.
+`output_year` is the year containing the first forecast day. Forecasts start on the day after the latest available record and contain the requested number of consecutive days.
 
 For an annual leap-year forecast, `days` is `366`, while `parameters.forecast_days` retains the requested `365`. At 30-minute intervals, annual output contains 17,520 rows in an ordinary year or 17,568 in a leap year. Historical leap-day removal does not apply to forecast dates. Regenerate older forecasts to include leap day.
 

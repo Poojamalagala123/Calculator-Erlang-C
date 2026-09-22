@@ -18,7 +18,9 @@ Thumbs.db
 
 *.log
 logs/
-tests/
 
+*.sqlite3
 
+tests/*
+tests/evidence/*
 

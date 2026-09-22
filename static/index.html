@@ -385,6 +385,13 @@
         tbody tr:hover { background: #edf6f7; }
         #forecastTableBody td:not(:first-child) { text-align: right; }
         .forecast-table th:not(:first-child) { text-align: right; }
+        .forecast-table-scroll {
+            max-height: 510px;
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+        }
+        .forecast-table-scroll table { margin: 0; }
         .note, .file-list { color: var(--muted); font-size: 12px; line-height: 1.7; }
         .schedule-info { border-color: var(--line); background: #edf5f8; padding: 16px 20px; border-radius: 10px; }
         .schedule-table-wrapper { border: 1px solid var(--line); border-radius: 10px; }
@@ -562,7 +569,7 @@
 
         </div>
 
-        <div class="chart-grid">
+        <div class="chart-grid" id="forecastCharts">
 
             <div class="chart-box">
                 <h2>Monthly predicted calls</h2>
@@ -620,24 +627,26 @@
                 Download Forecast CSV contains the full forecast year at 1-hour intervals with these same columns.
             </p>
 
-            <table class="forecast-table">
+            <div class="forecast-table-scroll">
+                <table class="forecast-table">
 
-                <thead>
+                    <thead>
 
-                <tr>
-                    <th>Interval</th>
-                    <th>Calls</th>
-                    <th>AHT</th>
-                    <th>Raw agents</th>
-                    <th>Scheduled agents</th>
-                    <th>Service level %</th>
-                </tr>
+                    <tr>
+                        <th>Interval</th>
+                        <th>Calls</th>
+                        <th>AHT</th>
+                        <th>Raw agents</th>
+                        <th>Scheduled agents</th>
+                        <th>Service level %</th>
+                    </tr>
 
-                </thead>
+                    </thead>
 
-                <tbody id="forecastTableBody"></tbody>
+                    <tbody id="forecastTableBody"></tbody>
 
-            </table>
+                </table>
+            </div>
 
         </div>
 
@@ -941,6 +950,9 @@
     let timeChartInstance = null;
     let precomputedDailyData = {};
     let monthlyDataCache = [];
+    let weekdayAggregateCache = [];
+    let timeOfDayAggregateCache = [];
+    let forecastDateSet = new Set();
 
     function destroyCharts() {
         charts.forEach(
@@ -1018,13 +1030,21 @@
         const daily = {};
         for (let i = 0; i < rows.length; i++) {
             const r = rows[i];
-            const d = r.date;
+            const d = String(r.date || r.interval_start || "").slice(0, 10);
+            if (!d) continue;
+            const parsedDate = new Date(`${d}T00:00:00Z`);
+            const month = Number.isFinite(Number(r.month))
+                ? Number(r.month) : parsedDate.getUTCMonth() + 1;
+            const weekday = Number.isFinite(Number(r.weekday))
+                ? Number(r.weekday) : (parsedDate.getUTCDay() + 6) % 7;
             if (!daily[d]) {
                 daily[d] = {
                     date: d,
-                    month: r.month,
-                    weekday: r.weekday,
-                    weekday_name: r.weekday_name,
+                    month,
+                    weekday,
+                    weekday_name: r.weekday_name || parsedDate.toLocaleDateString("en-US", {
+                        weekday: "long", timeZone: "UTC"
+                    }),
                     totalCalls: 0,
                     intervalCount: 0,
                     intervals: []
@@ -1035,6 +1055,51 @@
             daily[d].intervals.push(r);
         }
         return daily;
+    }
+
+    function indexDailyAggregates(rows) {
+        const daily = {};
+        for (const row of rows || []) {
+            const date = String(row.date || "").slice(0, 10);
+            if (!date) continue;
+            const parsedDate = new Date(`${date}T00:00:00Z`);
+            daily[date] = {
+                date,
+                month: parsedDate.getUTCMonth() + 1,
+                weekday: (parsedDate.getUTCDay() + 6) % 7,
+                weekday_name: parsedDate.toLocaleDateString("en-US", {
+                    weekday: "long", timeZone: "UTC"
+                }),
+                totalCalls: Number(row.call_volume) || 0,
+                intervalCount: 48,
+                intervals: []
+            };
+        }
+        return daily;
+    }
+
+    function calendarParts(date) {
+        const text = String(date || "").slice(0, 10);
+        const parsed = new Date(`${text}T00:00:00Z`);
+        return {
+            month: parsed.getUTCMonth() + 1,
+            weekday: (parsed.getUTCDay() + 6) % 7
+        };
+    }
+
+    function weekdayAggregateValues() {
+        const values = Array(7).fill(0);
+        const weekdayIndexes = {
+            Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3,
+            Friday: 4, Saturday: 5, Sunday: 6
+        };
+        for (const row of weekdayAggregateCache) {
+            const weekday = weekdayIndexes[row.weekday_name];
+            if (weekday !== undefined) {
+                values[weekday] = Number(row.average_calls) || 0;
+            }
+        }
+        return values;
     }
 
     function getMonthWeeks(year, month) {
@@ -1121,8 +1186,14 @@
 
     function selectedDateForDay(dayIndex) {
         if (selectedWeek === "all") return null;
-        const week = currentMonthWeeks[selectedWeek - 1];
-        return week ? week.days[dayIndex] || null : null;
+        const dates = Object.keys(precomputedDailyData).filter(date => {
+            const parts = calendarParts(date);
+            return parts.month === selectedMonthIndex + 1
+                && parts.weekday === dayIndex;
+        });
+        return dates.find(date => weekNumberForDate(date) === Number(selectedWeek))
+            || dates[0]
+            || null;
     }
 
     function resetTimeChart() {
@@ -1136,8 +1207,13 @@
         if (!timeChartInstance) return;
 
         const monthPrefix = `${currentForecastYear}-${String(selectedMonthIndex + 1).padStart(2, "0")}`;
-        const week = currentMonthWeeks[selectedWeek - 1];
-        const weekDates = new Set(week ? Object.values(week.days) : []);
+        const weekDates = new Set();
+        if (selectedWeek !== "all") {
+            for (let weekday = 0; weekday < 7; weekday++) {
+                const date = selectedDateForDay(weekday);
+                if (date) weekDates.add(date);
+            }
+        }
         const timeBuckets = new Map();
         for (const day of Object.values(precomputedDailyData)) {
             const included = selectedWeek === "all"
@@ -1153,16 +1229,20 @@
             }
         }
         const times = [...timeBuckets.keys()].sort();
+        const aggregateTimes = timeOfDayAggregateCache.map(row => row.time_label);
+        const displayTimes = times.length ? times : aggregateTimes;
         const monthLabel = monthlyDataCache[selectedMonthIndex]?.month_label || monthPrefix;
         const scope = selectedWeek === "all"
             ? `${monthLabel} ${currentForecastYear} (All weeks)`
             : `${monthLabel} ${currentForecastYear} (Week ${selectedWeek})`;
         document.getElementById("timeChartTitle").textContent = `Average calls by time - ${scope}`;
-        timeChartInstance.data.labels = times;
-        timeChartInstance.data.datasets[0].data = times.map(time => {
-            const bucket = timeBuckets.get(time);
-            return Number((bucket.calls / bucket.count).toFixed(2));
-        });
+        timeChartInstance.data.labels = displayTimes;
+        timeChartInstance.data.datasets[0].data = times.length
+            ? times.map(time => {
+                const bucket = timeBuckets.get(time);
+                return Number((bucket.calls / bucket.count).toFixed(2));
+            })
+            : timeOfDayAggregateCache.map(row => Number(row.average_calls) || 0);
         timeChartInstance.data.datasets[0].label = `Average calls - ${scope}`;
         timeChartInstance.update();
     }
@@ -1224,28 +1304,30 @@
                 let totalIntervals = 0;
                 for (const dateStr in precomputedDailyData) {
                     const rec = precomputedDailyData[dateStr];
-                    if (rec.month === monthNumber && rec.weekday === i) {
+                    const parts = calendarParts(dateStr);
+                    if (parts.month === monthNumber && parts.weekday === i) {
                         totalCalls += rec.totalCalls;
                         totalIntervals += rec.intervalCount;
                     }
                 }
                 return totalIntervals > 0 ? Number((totalCalls / totalIntervals).toFixed(2)) : 0;
             });
+            if (!chartDataValues.some(value => value > 0)) {
+                chartDataValues = weekdayAggregateValues();
+            }
         } else {
-            const weekIdx = week - 1;
-            const weekObj = currentMonthWeeks[weekIdx];
             titleText = `Average calls by weekday — ${monthLabel} (Week ${week})`;
             datasetLabel = `Average calls per interval (Week ${week})`;
 
             chartDataValues = weekdayOrder.map((name, i) => {
-                if (!weekObj || !weekObj.days[i]) {
-                    return 0;
-                }
-                const dateStr = weekObj.days[i];
+                const dateStr = selectedDateForDay(i);
                 const dayRec = precomputedDailyData[dateStr];
                 if (!dayRec) return 0;
                 return Number((dayRec.totalCalls / (dayRec.intervalCount || 48)).toFixed(2));
             });
+            if (!chartDataValues.some(value => value > 0)) {
+                chartDataValues = weekdayAggregateValues();
+            }
         }
 
         const titleElem = document.getElementById("weekdayChartTitle");
@@ -1279,6 +1361,13 @@
         resetTimeChart();
     }
 
+    function weekNumberForDate(date) {
+        const index = currentMonthWeeks.findIndex(week =>
+            Object.values(week.days).includes(date)
+        );
+        return index >= 0 ? index + 1 : 1;
+    }
+
     function renderSummary(data) {
 
         document.getElementById(
@@ -1297,17 +1386,36 @@
 
     }
 
-    function renderCharts(chartData) {
+    function renderCharts(chartData, historicalDays) {
 
         destroyCharts();
+        const chartGrid = document.getElementById("forecastCharts");
+        const showCharts = Number(historicalDays) >= 30;
+        chartGrid.hidden = !showCharts;
+        if (!showCharts) return;
 
-        precomputedDailyData = indexForecastByDate(forecastRows);
-        currentForecastYear = (forecastRows.length && forecastRows[0].interval_start)
-            ? new Date(forecastRows[0].interval_start).getFullYear()
+        const rowDailyData = indexForecastByDate(forecastRows);
+        precomputedDailyData = indexDailyAggregates(chartData.daily);
+        for (const [date, rowData] of Object.entries(rowDailyData)) {
+            if (!precomputedDailyData[date]) {
+                precomputedDailyData[date] = rowData;
+                continue;
+            }
+            precomputedDailyData[date].intervals = rowData.intervals;
+            precomputedDailyData[date].intervalCount = rowData.intervalCount;
+        }
+        const firstForecastDate = forecastRows.length && forecastRows[0].interval_start
+            ? forecastRows[0].interval_start.slice(0, 10)
+            : Object.keys(precomputedDailyData).sort()[0];
+        currentForecastYear = firstForecastDate
+            ? Number(firstForecastDate.slice(0, 4))
             : new Date().getFullYear();
+        forecastDateSet = new Set(Object.keys(precomputedDailyData));
 
         const monthly = chartData.monthly || [];
         monthlyDataCache = monthly;
+        weekdayAggregateCache = chartData.weekday || [];
+        timeOfDayAggregateCache = chartData.time_of_day || [];
 
         selectedMonthIndex = 0;
         const { bgColors, borderColors } = getMonthlyBarColors(selectedMonthIndex, monthly.length);
@@ -1340,25 +1448,14 @@
         );
 
         currentMonthWeeks = getMonthWeeks(currentForecastYear, selectedMonthIndex + 1);
-        selectedWeek = 1;
+        selectedWeek = weekNumberForDate(firstForecastDate);
 
         const weekdayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
         const firstMonthLabel = monthly.length > 0 ? monthly[0].month_label : "Month 1";
 
-        const initialWeekObj = currentMonthWeeks[0];
-        const initialWeekdayData = weekdayOrder.map((name, i) => {
-            if (!initialWeekObj || !initialWeekObj.days[i]) {
-                return 0;
-            }
-            const dateStr = initialWeekObj.days[i];
-            const dayRec = precomputedDailyData[dateStr];
-            if (!dayRec) return 0;
-            return Number((dayRec.totalCalls / (dayRec.intervalCount || 48)).toFixed(2));
-        });
-
         const titleElem = document.getElementById("weekdayChartTitle");
         if (titleElem) {
-            titleElem.textContent = `Average calls by weekday — ${firstMonthLabel} (Week 1)`;
+            titleElem.textContent = `Average calls by weekday — ${firstMonthLabel} (Week ${selectedWeek})`;
         }
 
         weekdayChartInstance = makeChart(
@@ -1367,8 +1464,8 @@
             weekdayOrder,
             [
                 {
-                    label: "Average calls per interval (Week 1)",
-                    data: initialWeekdayData,
+                    label: `Average calls per interval (Week ${selectedWeek})`,
+                    data: [],
                     backgroundColor: "rgba(52, 168, 83, 0.7)",
                     borderColor: "#1e8e3e",
                     borderWidth: 1
@@ -1389,9 +1486,6 @@
                         callbacks: {
                             label: function(context) {
                                 const val = context.raw;
-                                if (selectedWeek !== "all" && !precomputedDailyData[selectedDateForDay(context.dataIndex)]) {
-                                    return " 0 calls (Outside of month/week)";
-                                }
                                 const date = selectedDateForDay(context.dataIndex);
                                 const day = date && precomputedDailyData[date];
                                 return day
@@ -1405,6 +1499,7 @@
         );
 
         renderWeekButtons(currentMonthWeeks.length, selectedWeek);
+        updateWeekdayChartData(selectedMonthIndex, selectedWeek);
 
         const time =
             chartData.time_of_day || [];
@@ -1737,9 +1832,7 @@
                 configureTableDate(forecastRows, data.output_year);
                 renderSummary(data);
 
-                renderCharts(
-                    data.charts
-                );
+                renderCharts(data.charts, data.historical_days);
 
                 renderTable(
                     forecastRows
@@ -1856,11 +1949,12 @@
 
         const month = rows[0].date.slice(0, 7);
         const [year, monthNumber] = month.split("-").map(Number);
-        const daysInMonth = new Date(year, monthNumber, 0).getDate();
+        const datesToDisplay = forecastDateSet.size
+            ? [...forecastDateSet].filter(date => date.startsWith(month)).sort()
+            : [];
         const shifts = ["NIGHT", "MORNING", "EVENING"];
         const counts = new Map();
-        for (let day = 1; day <= daysInMonth; day++) {
-            const date = `${month}-${String(day).padStart(2, "0")}`;
+        for (const date of datesToDisplay) {
             counts.set(date, shifts.map(() => new Set()));
         }
         rows.forEach(row => {

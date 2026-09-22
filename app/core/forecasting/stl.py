@@ -1,17 +1,78 @@
 from __future__ import annotations
 
-from calendar import isleap
 from pathlib import Path
 from typing import Callable, Optional, Sequence
+
 import numpy as np
 import pandas as pd
-from statsmodels.tsa.seasonal import STL
 
 from app.core.constants import FORECAST_COLUMNS
 from app.core.ingestion.reader import read_cdr_csv
-from app.core.ingestion.cleaner import preprocess_cdr, infer_single_year, clean_percent
+from app.core.ingestion.cleaner import preprocess_cdr, clean_percent
 from app.core.ingestion.interval import build_cdr_intervals
 from app.core.queuing.staffing import compute_interval_staffing
+
+
+def _profile_for_day(frame: pd.DataFrame, day: pd.Timestamp, intervals_per_day: int) -> np.ndarray:
+    day_start = pd.Timestamp(day).normalize()
+    values = frame.loc[
+        frame["interval_start"].dt.normalize() == day_start,
+        ["interval_start", "call_volume"],
+    ].copy()
+    profile = np.zeros(intervals_per_day, dtype=float)
+    if values.empty:
+        return profile
+    slots = (
+        values["interval_start"].dt.hour * 60 + values["interval_start"].dt.minute
+    ) // (1440 // intervals_per_day)
+    for slot, volume in zip(slots.astype(int), values["call_volume"].astype(float)):
+        profile[slot] += volume
+    return profile
+
+
+def _predict_day_profile(
+    profiles: dict[pd.Timestamp, np.ndarray],
+    day: pd.Timestamp,
+) -> np.ndarray:
+    prior_days = sorted(profile_day for profile_day in profiles if profile_day < day)
+    if not prior_days:
+        raise ValueError("At least one day of valid records is required for prediction.")
+
+    day_number = len(prior_days)
+    if day_number < 7:
+        source_days = prior_days
+    elif day_number < 31:
+        same_weekday = [
+            profile_day for profile_day in prior_days
+            if profile_day.dayofweek == day.dayofweek
+        ]
+        source_days = same_weekday or prior_days[-7:]
+    elif day_number < 366:
+        same_month_position = [
+            profile_day for profile_day in prior_days
+            if profile_day.day == day.day and profile_day.dayofweek == day.dayofweek
+        ]
+        same_weekday = [
+            profile_day for profile_day in prior_days
+            if profile_day.dayofweek == day.dayofweek
+        ]
+        source_days = same_month_position or same_weekday or prior_days[-31:]
+    else:
+        same_year_period = [
+            profile_day for profile_day in prior_days
+            if profile_day.month == day.month
+            and profile_day.day == day.day
+            and profile_day.dayofweek == day.dayofweek
+        ]
+        same_month = [
+            profile_day for profile_day in prior_days
+            if profile_day.month == day.month
+            and profile_day.dayofweek == day.dayofweek
+        ]
+        source_days = same_year_period or same_month or prior_days[-366:]
+
+    return np.rint(np.mean([profiles[profile_day] for profile_day in source_days], axis=0)).astype(int)
+
 
 def build_stl_forecast(
     file_paths: Sequence[str | Path],
@@ -27,7 +88,7 @@ def build_stl_forecast(
     progress_callback: Optional[Callable[[int, str], None]] = None,
 ) -> tuple[pd.DataFrame, dict]:
     if not file_paths:
-        raise ValueError("Upload at least one full-year CDR dataset.")
+        raise ValueError("Upload at least one CDR dataset with one or more days of valid records.")
     if filenames is not None and len(filenames) != len(file_paths):
         raise ValueError("filenames and file_paths must have the same length.")
 
@@ -46,11 +107,11 @@ def build_stl_forecast(
     if resolved_period < 2:
         raise ValueError("seasonal_period must be at least 2 intervals.")
 
-    dataset_frames: list[pd.DataFrame] = []
+    interval_frames: list[pd.DataFrame] = []
     dataset_summary: list[dict] = []
-    seen_years: set[int] = set()
-
+    historical_years: set[int] = set()
     total_files = len(file_paths)
+
     for index, path in enumerate(file_paths):
         filename = filenames[index] if filenames else Path(path).name
         if progress_callback:
@@ -60,31 +121,18 @@ def build_stl_forecast(
         raw_frame = read_cdr_csv(path)
         raw_count = len(raw_frame)
         clean = preprocess_cdr(path, raw_frame=raw_frame)
-
         if clean.empty:
             raise ValueError(f"No valid Answered records found in {filename}.")
-        year = infer_single_year(clean, filename)
-        if year in seen_years:
-            raise ValueError(f"Duplicate year {year}. Upload only one dataset for each year.")
-        seen_years.add(year)
 
-        frame = build_cdr_intervals(
-            clean,
-            interval_minutes=interval_minutes,
-            include_empty_intervals=True,
-            year=year,
-        ).rename(columns={"call_datetime": "interval_start"})
-        frame = frame.loc[
-            ~((frame["interval_start"].dt.month == 2) & (frame["interval_start"].dt.day == 29))
-        ].copy()
-        frame["source_year"] = year
-        dataset_frames.append(frame)
-
+        historical_years.update(clean["call_datetime"].dt.year.astype(int).unique().tolist())
+        intervals = build_cdr_intervals(clean, interval_minutes=interval_minutes)
+        intervals = intervals.rename(columns={"call_datetime": "interval_start"})
+        interval_frames.append(intervals)
         answered_calls = int(len(clean))
         total_handle = float(clean["duration_seconds"].sum())
         dataset_summary.append({
             "filename": filename,
-            "year": year,
+            "years": sorted(clean["call_datetime"].dt.year.astype(int).unique().tolist()),
             "raw_rows": int(raw_count),
             "valid_answered_calls": answered_calls,
             "removed_rows": int(raw_count - answered_calls),
@@ -94,96 +142,82 @@ def build_stl_forecast(
         })
 
     if progress_callback:
-        progress_callback(45, "Combining historical intervals and preparing time series...")
+        progress_callback(45, "Combining available records and preparing rolling prediction...")
 
-    historical = pd.concat(dataset_frames, ignore_index=True).sort_values("interval_start")
-    historical = historical.reset_index(drop=True)
-    if len(historical) < resolved_period * 2:
-        raise ValueError(
-            f"STL needs at least two complete seasonal cycles ({resolved_period * 2} intervals)."
+    historical = (
+        pd.concat(interval_frames, ignore_index=True)
+        .groupby("interval_start", as_index=False)
+        .agg(
+            call_volume=("call_volume", "sum"),
+            total_handle_time_seconds=("total_handle_time_seconds", "sum"),
         )
+        .sort_values("interval_start")
+        .reset_index(drop=True)
+    )
+    if historical["interval_start"].dt.normalize().nunique() < 1:
+        raise ValueError("At least one day of valid records is required for prediction.")
 
     if progress_callback:
-        progress_callback(55, "Running STL seasonal-trend decomposition...")
+        progress_callback(55, "Building recursive day, week, month, and year predictions...")
 
-    call_series = historical["call_volume"].astype(float)
-    seasonal_len = 7
-    trend_len = int(np.ceil(1.5 * resolved_period / (1 - 1.5 / seasonal_len)))
-    if trend_len % 2 == 0:
-        trend_len += 1
-    trend_jump = max(1, int(np.ceil(trend_len / 10)))
-    low_pass_jump = max(1, int(np.ceil(resolved_period / 10)))
+    actual_days = sorted(historical["interval_start"].dt.normalize().unique())
+    if len(actual_days) < 7:
+        forecast_days = 1
+    profiles = {
+        pd.Timestamp(day): _profile_for_day(historical, pd.Timestamp(day), intervals_per_day)
+        for day in actual_days
+    }
+    start = pd.Timestamp(actual_days[-1]) + pd.Timedelta(days=1)
+    forecast_dates = [start + pd.Timedelta(days=offset) for offset in range(forecast_days)]
+    future_values: list[int] = []
+    for day in forecast_dates:
+        profile = _predict_day_profile(profiles, day)
+        profiles[day.normalize()] = profile
+        future_values.extend(profile.tolist())
 
-    decomposition = STL(
-        call_series,
-        period=resolved_period,
-        seasonal=seasonal_len,
-        seasonal_jump=1,
-        trend_jump=trend_jump,
-        low_pass_jump=low_pass_jump,
-        robust=True,
-    ).fit()
-
-    output_year = max(seen_years) + 1
-    # The dashboard requests 365 days to represent the full forecast year.
-    if forecast_days == 365 and isleap(output_year):
-        forecast_days = 366
-    horizon = forecast_days * intervals_per_day
-    lookback = min(len(decomposition.trend), trend_lookback_days * intervals_per_day)
-    trend_tail = np.asarray(decomposition.trend.iloc[-lookback:], dtype=float)
-    x = np.arange(lookback, dtype=float)
-    slope, intercept = np.polyfit(x, trend_tail, 1)
-    future_x = np.arange(lookback, lookback + horizon, dtype=float)
-    future_trend = intercept + slope * future_x
-
-    seasonal_cycle = np.asarray(decomposition.seasonal.iloc[-resolved_period:], dtype=float)
-    future_seasonal = np.resize(seasonal_cycle, horizon)
-    predicted_calls = np.clip(np.rint(future_trend + future_seasonal), 0, None).astype(int)
+    future = pd.DataFrame({
+        "interval_start": pd.date_range(
+            start=start,
+            periods=len(future_values),
+            freq=f"{interval_minutes}min",
+        ),
+        "call_volume": np.asarray(future_values, dtype=int),
+    })
 
     if progress_callback:
         progress_callback(65, "Estimating slot-level Average Handling Times (AHT)...")
 
     historical["slot"] = (
-        historical["interval_start"].dt.dayofweek * intervals_per_day
-        + (historical["interval_start"].dt.hour * 60 + historical["interval_start"].dt.minute) // interval_minutes
-    )
+        historical["interval_start"].dt.hour * 60 + historical["interval_start"].dt.minute
+    ) // interval_minutes
+    total_calls = historical["call_volume"].sum()
     global_aht = (
-        historical["total_handle_time_seconds"].sum()
-        / historical["call_volume"].sum()
-        if historical["call_volume"].sum() > 0 else 1.0
+        historical["total_handle_time_seconds"].sum() / total_calls
+        if total_calls > 0 else 1.0
     )
-    slot_aht = (
-        historical.groupby("slot")
-        .agg(total_handle=("total_handle_time_seconds", "sum"), calls=("call_volume", "sum"))
+    slot_aht = historical.groupby("slot").agg(
+        total_handle=("total_handle_time_seconds", "sum"),
+        calls=("call_volume", "sum"),
     )
     slot_aht["aht_seconds"] = (
         slot_aht["total_handle"] / slot_aht["calls"].replace(0, np.nan)
     ).fillna(global_aht)
-
-    start = pd.Timestamp(f"{output_year}-01-01 00:00:00")
-    future_index = pd.date_range(start=start, periods=horizon, freq=f"{interval_minutes}min")
-    future = pd.DataFrame({"interval_start": future_index})
-
-    future["call_volume"] = predicted_calls[:len(future)]
     future["slot"] = (
-        future["interval_start"].dt.dayofweek * intervals_per_day
-        + (future["interval_start"].dt.hour * 60 + future["interval_start"].dt.minute) // interval_minutes
-    )
+        future["interval_start"].dt.hour * 60 + future["interval_start"].dt.minute
+    ) // interval_minutes
     future["aht_seconds"] = future["slot"].map(slot_aht["aht_seconds"]).fillna(global_aht).astype(float)
 
     if progress_callback:
         progress_callback(75, f"Calculating Erlang C staffing across {len(future):,} intervals...")
 
-    interval_seconds = interval_minutes * 60
     metrics = compute_interval_staffing(
         future_df=future,
-        interval_seconds=interval_seconds,
+        interval_seconds=interval_minutes * 60,
         target_seconds=float(target_seconds),
         target_service_level=float(target_service_level),
         shrinkage=float(shrinkage),
         max_agents=int(max_agents),
     )
-
     forecast = pd.concat([future.drop(columns=["slot"]).reset_index(drop=True), metrics], axis=1)
     forecast["date"] = forecast["interval_start"].dt.strftime("%Y-%m-%d")
     forecast["day_of_year"] = forecast["interval_start"].dt.dayofyear
@@ -201,18 +235,17 @@ def build_stl_forecast(
         "probability_waiting_percent": 2, "occupancy_percent": 2, "asa_seconds": 2,
     })[FORECAST_COLUMNS]
 
-    if progress_callback:
-        progress_callback(92, "Generating summary statistics and peak analysis...")
-
     peak_row = forecast.loc[forecast["call_volume"].idxmax()]
     target_percent = clean_percent(target_service_level) * 100
+    output_year = int(forecast["interval_start"].dt.year.iloc[0])
     summary = {
-        "method": "STL",
-        "logic": "STL weekly decomposition with linear trend extrapolation and repeated seasonal cycle.",
-        "dataset_count": len(dataset_frames),
-        "historical_years": sorted(seen_years),
-        "output_year": int(output_year),
-        "days": int(forecast_days),
+        "method": "ROLLING_PROFILE",
+        "logic": "Expanding day profiles, then weekly, monthly, and prior-year same-period profiles with new records included.",
+        "dataset_count": len(interval_frames),
+        "historical_years": sorted(historical_years),
+        "historical_days": int(len(actual_days)),
+        "output_year": output_year,
+        "days": forecast_days,
         "interval_minutes": interval_minutes,
         "seasonal_period": resolved_period,
         "trend_lookback_days": trend_lookback_days,
@@ -233,17 +266,14 @@ def build_stl_forecast(
             "scheduled_agents": int(peak_row["scheduled_agents"]),
         },
         "source_data": {
-            "dataset_count": len(dataset_frames),
-            "historical_years": sorted(seen_years),
-            "datasets": sorted(dataset_summary, key=lambda item: item["year"]),
+            "dataset_count": len(interval_frames),
+            "historical_years": sorted(historical_years),
+            "datasets": sorted(dataset_summary, key=lambda item: item["first_call"]),
         },
         "decomposition_summary": {
             "historical_intervals": int(len(historical)),
-            "trend_last_value": round(float(decomposition.trend.iloc[-1]), 4),
-            "trend_slope_per_interval": round(float(slope), 8),
-            "seasonal_min": round(float(decomposition.seasonal.min()), 4),
-            "seasonal_max": round(float(decomposition.seasonal.max()), 4),
-            "residual_std": round(float(decomposition.resid.std()), 4),
+            "prediction_start": start.isoformat(),
+            "prediction_strategy": "day-to-day, week-to-week, month-to-month, then year-to-year rolling profiles",
         },
     }
     return forecast, summary

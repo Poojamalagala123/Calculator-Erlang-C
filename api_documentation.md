@@ -147,13 +147,11 @@ A row is retained only when:
 - disposition is `Answered` by default;
 - duration is between 1 second and 4 hours by default.
 
+The reader also accepts the header-based call-export schema with `Call ID`, `Date`, `Caller ID`, `Queue`, and `Talk time`. `Date` is parsed as a normal timestamp, `Talk time` is converted from `HH:MM:SS` or day/hour/minute/second text, and positive talk time marks the call as answered.
+
 ## Dataset validation
 
-Each file must contain exactly one calendar year after cleaning.
-
-Duplicate years across uploaded files are rejected.
-
-At least one valid answered record must remain in every uploaded file. Full-year input is expected, but coverage of every month is not validated: missing intervals are filled with zero calls. Historical years need not be consecutive.
+At least one valid answered record must remain in every uploaded file, and the combined input must contain at least one calendar day. Files may contain partial days, partial months, multiple years, or overlapping dates. Missing dates are not rejected.
 
 ## Forecast processing
 
@@ -162,14 +160,11 @@ For every dataset:
 ```text
 read file
 → clean CDR
-→ identify unique year
-→ build complete fixed interval grid
-→ remove Feb 29
+→ build fixed intervals for available records
+→ combine all available history
 ```
 
-All yearly interval frames are concatenated chronologically.
-
-STL requires at least two complete seasonal periods of historical data.
+Forecasting starts on the day after the latest available record. If fewer than seven recorded calendar days are available, only the next one day is returned. For example, Aug 30 and Aug 31 produce a Sep 1 forecast, but no Sep 2 forecast. After seven recorded days, future profiles are generated recursively using expanding prior-day history, prior weekly history, prior monthly history, and prior-year same-period history. Newly supplied records are included in the history used for later predictions.
 
 ### Default seasonality
 
@@ -184,17 +179,15 @@ At 30 minutes:
 seasonal_period = 336
 ```
 
-### Forecast equation
+### Rolling forecast equation
 
 Conceptually:
 
 ```text
-future_calls = extrapolated_STL_trend + repeated_STL_seasonality
+future_day_profile = mean(selected_prior_day_profiles)
 ```
 
-The result is rounded and clipped to zero or above.
-
-Residual noise is not extrapolated.
+The selected prior profiles expand from day history to weekly, monthly, and yearly matching periods as the forecast advances. The result is rounded and clipped to zero or above.
 
 ### Future AHT
 
@@ -325,7 +318,7 @@ User/data errors return status `400`, for example:
 
 ```json
 {
-  "detail": "Upload at least one yearly CDR dataset."
+  "detail": "Upload at least one CDR dataset."
 }
 ```
 
