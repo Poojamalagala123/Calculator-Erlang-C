@@ -74,6 +74,26 @@ def _predict_day_profile(
     return np.rint(np.mean([profiles[profile_day] for profile_day in source_days], axis=0)).astype(int)
 
 
+def _forecast_window(actual_days: Sequence, requested_days: int) -> tuple[pd.Timestamp, int]:
+    first = pd.Timestamp(min(actual_days)).normalize()
+    last = pd.Timestamp(max(actual_days)).normalize()
+    next_day = last + pd.Timedelta(days=1)
+    history_days = (next_day - first).days
+    if history_days < 7:
+        return next_day, 1
+    # Non-default API horizons remain explicit overrides.
+    if requested_days != 365:
+        return next_day, requested_days
+    if next_day >= first + pd.DateOffset(years=1):
+        start = pd.Timestamp(year=last.year + 1, month=1, day=1)
+        end = start + pd.DateOffset(years=1)
+        return start, (end - start).days
+    if history_days >= 28:
+        start = (last.to_period("M") + 1).start_time
+        return start, start.days_in_month
+    return next_day, 7
+
+
 def build_stl_forecast(
     file_paths: Sequence[str | Path],
     filenames: Sequence[str] | None = None,
@@ -161,13 +181,11 @@ def build_stl_forecast(
         progress_callback(55, "Building recursive day, week, month, and year predictions...")
 
     actual_days = sorted(historical["interval_start"].dt.normalize().unique())
-    if len(actual_days) < 7:
-        forecast_days = 1
+    start, forecast_days = _forecast_window(actual_days, forecast_days)
     profiles = {
         pd.Timestamp(day): _profile_for_day(historical, pd.Timestamp(day), intervals_per_day)
         for day in actual_days
     }
-    start = pd.Timestamp(actual_days[-1]) + pd.Timedelta(days=1)
     forecast_dates = [start + pd.Timedelta(days=offset) for offset in range(forecast_days)]
     future_values: list[int] = []
     for day in forecast_dates:

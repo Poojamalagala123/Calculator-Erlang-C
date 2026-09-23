@@ -355,3 +355,18 @@ python -m unittest discover -s tests -p "test_*.py"
 ```
 
 The current `.gitignore` excludes `tests/`, so local tests may not be available in a fresh clone. Postman files in `postman/` currently contain placeholder requests and an empty base URL; configure them before use. The notebook and refactoring notes are supporting material; runtime behaviour is implemented in `app/` and `static/index.html`.
+
+### Automatic forecast periods
+
+The default dashboard forecast uses the inclusive date span from the earliest to the latest valid record across all uploaded files. Days without calls inside that span still count toward its duration.
+
+| Historical date span | Prediction period |
+|---|---|
+| 1-6 days | Next day |
+| 7-27 days | Next 7 days |
+| 28 days to less than 12 calendar months | Next full calendar month |
+| 12 calendar months or more | Next full calendar year |
+
+For example, August 1-31, 2026 predicts September 1-30, 2026. A 28-day period ending partway through August also predicts September. Monthly and yearly predictions begin on the first day of the following calendar month or year; leap years and variable month lengths are handled automatically.
+
+Explicit non-default API forecast durations retain their requested length, except that inputs spanning fewer than seven days still predict only the next day. Both synchronous and asynchronous responses report the effective duration.

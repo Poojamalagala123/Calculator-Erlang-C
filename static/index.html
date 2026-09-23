@@ -469,7 +469,6 @@
                         class="note"
                     >
                         Upload one or more CDR files containing historical call records.
-                        Each file must contain one complete calendar year.
                     </div>
 
                     <div
@@ -1184,11 +1183,18 @@
         container.appendChild(allBtn);
     }
 
+    function chartMonthNumber(index) {
+        const labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const month = labels.indexOf(monthlyDataCache[index]?.month_label);
+        return month >= 0 ? month + 1 : index + 1;
+    }
+
     function selectedDateForDay(dayIndex) {
         if (selectedWeek === "all") return null;
         const dates = Object.keys(precomputedDailyData).filter(date => {
             const parts = calendarParts(date);
-            return parts.month === selectedMonthIndex + 1
+            return parts.month === chartMonthNumber(selectedMonthIndex)
                 && parts.weekday === dayIndex;
         });
         return dates.find(date => weekNumberForDate(date) === Number(selectedWeek))
@@ -1206,7 +1212,7 @@
             : "Showing weekly averages by time. Click a day to view that date.";
         if (!timeChartInstance) return;
 
-        const monthPrefix = `${currentForecastYear}-${String(selectedMonthIndex + 1).padStart(2, "0")}`;
+        const monthPrefix = `${currentForecastYear}-${String(chartMonthNumber(selectedMonthIndex)).padStart(2, "0")}`;
         const weekDates = new Set();
         if (selectedWeek !== "all") {
             for (let weekday = 0; weekday < 7; weekday++) {
@@ -1288,7 +1294,7 @@
         if (!weekdayChartInstance) return;
 
         const weekdayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-        const monthNumber = monthIndex + 1;
+        const monthNumber = chartMonthNumber(monthIndex);
         const monthLabel = monthlyDataCache[monthIndex] ? monthlyDataCache[monthIndex].month_label : `Month ${monthNumber}`;
 
         let chartDataValues = [];
@@ -1351,7 +1357,7 @@
             monthlyChartInstance.update();
         }
 
-        const monthNumber = selectedMonthIndex + 1;
+        const monthNumber = chartMonthNumber(selectedMonthIndex);
         currentMonthWeeks = getMonthWeeks(currentForecastYear, monthNumber);
 
         // Default to week 1 as requested
@@ -1386,13 +1392,11 @@
 
     }
 
-    function renderCharts(chartData, historicalDays) {
+    function renderCharts(chartData) {
 
         destroyCharts();
         const chartGrid = document.getElementById("forecastCharts");
-        const showCharts = Number(historicalDays) >= 30;
-        chartGrid.hidden = !showCharts;
-        if (!showCharts) return;
+        chartGrid.hidden = false;
 
         const rowDailyData = indexForecastByDate(forecastRows);
         precomputedDailyData = indexDailyAggregates(chartData.daily);
@@ -1447,7 +1451,7 @@
             }
         );
 
-        currentMonthWeeks = getMonthWeeks(currentForecastYear, selectedMonthIndex + 1);
+        currentMonthWeeks = getMonthWeeks(currentForecastYear, chartMonthNumber(selectedMonthIndex));
         selectedWeek = weekNumberForDate(firstForecastDate);
 
         const weekdayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -1832,7 +1836,7 @@
                 configureTableDate(forecastRows, data.output_year);
                 renderSummary(data);
 
-                renderCharts(data.charts, data.historical_days);
+                renderCharts(data.charts);
 
                 renderTable(
                     forecastRows

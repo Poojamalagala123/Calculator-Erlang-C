@@ -56,7 +56,7 @@ def run_stl_forecast_worker(
             **summary,
             "parameters": {
                 "interval_minutes": interval_minutes,
-                "forecast_days": forecast_days,
+                "forecast_days": summary["days"],
                 "seasonal_period": summary["seasonal_period"],
                 "trend_lookback_days": trend_lookback_days,
                 "target_seconds": target_seconds,
