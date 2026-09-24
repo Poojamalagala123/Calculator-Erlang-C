@@ -3,7 +3,6 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from typing import Sequence
-import pandas as pd
 
 from app.core.forecasting.stl import build_stl_forecast
 from app.core.forecasting.aggregates import build_dashboard_aggregates

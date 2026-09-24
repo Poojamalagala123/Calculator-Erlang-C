@@ -4,8 +4,8 @@ from fastapi import HTTPException
 from app.api.v1.schedule import monthly_schedule
 from app.schemas.schedule import MonthlyScheduleRequest
 from app.core.constants import SHIFT_DEFINITIONS
-from app.core.scheduling.shifts import build_shift_requirements, shift_definitions, schedule_start_times
-from app.core.scheduling.swap import validate_agent_rest_period
+from app.core.scheduling.shifts import build_shift_requirements, shift_definitions
+from app.core.scheduling.rest import validate_agent_rest_period
 
 
 class ManualShiftTimesTests(unittest.TestCase):
@@ -54,7 +54,6 @@ class ManualShiftTimesTests(unittest.TestCase):
         self.assertEqual([s["label"] for s in result["summary"]["shifts"]],
                          ["22:00-06:00", "06:00-14:00", "14:00-22:00"])
         frame = pd.DataFrame(result["schedule"])
-        self.assertEqual(schedule_start_times(frame), ["22:00", "06:00", "14:00"])
         for agent, rows in frame.loc[frame.status == "WORK"].groupby("agent_id"):
             self.assertFalse(rows.date.duplicated().any())
             for row in rows.itertuples():

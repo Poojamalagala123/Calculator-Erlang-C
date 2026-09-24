@@ -41,17 +41,6 @@ def row_shift_hours(row) -> dict:
     return {"start": shift["start_hour"], "end": shift["end_hour"]}
 
 
-def schedule_start_times(schedule: pd.DataFrame) -> list[str] | None:
-    codes = [shift["code"] for shift in SHIFT_DEFINITIONS]
-    for _, row in schedule.iterrows():
-        if row.get("status") == "WORK" and row.get("shift_code") in codes:
-            offset = codes.index(row["shift_code"])
-            first = round(row_shift_hours(row)["start"] * 60) - offset * 480
-            values = [(first + index * 480) % 1440 for index in range(3)]
-            return [f"{value // 60:02d}:{value % 60:02d}" for value in values]
-    return None
-
-
 def build_shift_requirements(
     forecast: pd.DataFrame,
     year: int | None = None,

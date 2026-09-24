@@ -10,7 +10,7 @@ The browser submits a background forecast job, displays progress and charts, bui
 
 ## Quick start
 
-Use Python 3.10 or later. Dependencies are listed in [requirements.txt](requirements.txt): pandas, NumPy, statsmodels, pyworkforce, FastAPI, Uvicorn, and python-multipart. There is no frontend build step.
+Use Python 3.10 or later. Dependencies are listed in [requirements.txt](requirements.txt): pandas, NumPy, pyworkforce, FastAPI, Uvicorn, and python-multipart. There is no frontend build step.
 
 ### Windows PowerShell
 
@@ -61,7 +61,7 @@ Calculator-Erlang-C/
 |   |   |-- ingestion/             # CDR parsing, cleaning, interval construction
 |   |   |-- forecasting/           # STL forecast and dashboard aggregates
 |   |   |-- queuing/               # Erlang C calculations and staffing cache
-|   |   `-- scheduling/           # Monthly rosters, leave, swaps, rest validation
+|   |   `-- scheduling/           # Monthly rosters and rest validation
 |   `-- workers/                   # In-memory jobs and background forecast worker
 |-- static/index.html              # Dashboard, filters, and CSV generation
 |-- requirements.txt
@@ -222,8 +222,6 @@ Summary service level, occupancy, and ASA are arithmetic means over forecast int
 | `GET` | `/api/v1/jobs/{job_id}` | Return progress, status, error, and completed result |
 | `GET` | `/api/v1/jobs/{job_id}/stream` | Stream progress as server-sent events |
 | `POST` | `/api/v1/schedule/monthly` | Generate a monthly roster from JSON forecast rows |
-| `POST` | `/api/v1/schedule/leave` | Apply leave using manual or automatic replacement |
-| `POST` | `/api/v1/schedule/swap` | Swap two working agents' shifts on one date |
 
 The dashboard uses the async forecast route and polls every 500 ms. Submission returns HTTP 200 with `job_id`, `status: queued`, `poll_url`, and `stream_url`. Job statuses are `queued`, `processing`, `completed`, and `failed`. Read `result.forecast` from a completed polling response; failed jobs expose an `error`. Polling responses have `result: null` until completion.
 
@@ -260,21 +258,7 @@ The generator assigns at most one shift per day, at most five working days per w
 
 The response has `schedule` rows and a `summary` with headcount, assignment totals, `coverage_shortage`, `coverage_ok`, and per-shift coverage. The headcount estimate does not guarantee the greedy assignment will fill every shift: inspect coverage fields even after HTTP 200. Automatic estimation of zero agents for a month with no staffing demand is rejected by the generator's positive-agent-count check.
 
-Months are generated independently. Weekly limits and rest checks do not carry prior-month assignments into a new monthly generation. The yearly CSV combines these monthly schedules; it does not optimize a continuous annual roster.
-
-### Leave and shift swaps
-
-Leave requests contain `forecast`, the current `schedule`, `agent_id`, and `leave_date`. Optional fields are `replacement_agent_id` (null or 1-100 characters) and `auto_assign` (default `true`).
-
-The dashboard uses manual replacement: `auto_assign: false` and the selected replacement ID. If coverage is required, an OFF replacement must remain within the weekly work limit, or a transfer must preserve staffing in the source shift. Manual replacements skip rest validation and never fall back to a different agent. Missing/invalid manual choices return HTTP 400 when coverage is needed.
-
-API clients can omit both optional fields for automatic coverage. Providing a replacement ID always selects manual mode. Automatic mode tries an eligible OFF replacement, then a transfer from another shift, with eight-hour rest validation. A selected automatic candidate failing rest validation can cause HTTP 400; the implementation does not exhaustively search every alternative candidate.
-
-When leave is applied, the original assignment is saved and the agent's shift/status becomes `LEAVE`. Sufficient staffing needs no replacement. Agents already OFF or already on leave can produce `NO_ACTION`. Result methods include `NO_ACTION`, `NO_REPLACEMENT_REQUIRED`, `OFF_AGENT_COVER`, `SHIFT_TRANSFER`, and `UNRESOLVED`; always inspect `result.resolved` and store the returned schedule.
-
-Swap requests contain the current `schedule`, `agent_1`, `agent_2`, and `swap_date`. Both agents must have exactly one row on that date, be working different shifts, and satisfy the eight-hour rest check after exchange. The validator checks working assignments on the previous and next calendar dates present in the supplied schedule.
-
-Updated rows may include `original_shift_code`, `original_shift`, `previous_shift_code`, `previous_shift`, and `assignment_type`. Assignment types include `LEAVE_COVER`, `SHIFT_TRANSFER`, and `SHIFT_SWAP`. Later operations must use the latest returned schedule.
+Months are generated independently. Weekly limits and rest checks do not carry prior-month assignments into a new monthly generation. The CSV exports the displayed daily staffing totals.
 
 ## Dashboard filters and CSV exports
 
@@ -293,7 +277,7 @@ A complete annual forecast produces 8,760 CSV data rows, or 8,784 in a leap year
 
 ### Daily scheduled agents
 
-The dashboard shows scheduled-agent counts for every day of the selected month, grouped by the three 8-hour shifts. Only working assignments count. The agent-level monthly roster, leave management, and shift swap controls are not displayed; the leave and swap API endpoints remain available.
+The dashboard shows scheduled-agent counts for every day of the selected month, grouped by the three 8-hour shifts. Only working assignments count. The dashboard displays daily staffing totals rather than an agent-level roster.
 
 ### Daily scheduled agents CSV
 
@@ -313,11 +297,9 @@ Both exports are built in the browser as UTF-8 CSV with BOM and CRLF row endings
 | `MAX_UPLOAD_FILES` | `10` | Files per forecast submission |
 | `MAX_FORECAST_DAYS` | `3650` | Maximum requested forecast horizon |
 | `MAX_AGENT_COUNT` | `10000` | Request limit for interval staffing cap and monthly headcount |
-| `MAX_FORECAST_ROWS` | `40000` | Maximum forecast rows in monthly/leave requests |
-| `MAX_SCHEDULE_ROWS` | `50000` | Maximum schedule rows in leave/swap requests |
+| `MAX_FORECAST_ROWS` | `40000` | Maximum forecast rows in monthly requests |
 | `MAX_WORKER_THREADS` | `8` | Background forecast thread-pool size |
 
-Schedule/leave/swap agent IDs have a maximum of 100 characters; date strings have a maximum of 10 characters and should use `YYYY-MM-DD`. Very large generated monthly rosters can exceed the row limit for subsequent leave/swap requests.
 
 Job status/results live in process memory and are lost on restart. Separate server processes do not share jobs; the current background manager is a local thread pool. Forecast and schedule state are not stored in a database. The browser keeps the current monthly schedule until a new forecast starts or the page is reloaded.
 
@@ -327,7 +309,7 @@ Requests are logged with method, path, status, duration, and an ID returned in `
 
 | Status / result | Meaning |
 |---|---|
-| HTTP 400 | Data or calculation errors, such as duplicate historical years, unsupported files, invalid forecast settings, insufficient headcount, or invalid leave/swap operations |
+| HTTP 400 | Data or calculation errors, such as duplicate historical years, unsupported files, invalid forecast settings, insufficient headcount |
 | HTTP 404 | Unknown background job |
 | HTTP 413 | Uploaded file exceeds the size limit |
 | HTTP 422 | FastAPI/Pydantic request type, required-field, or declared model-bound validation |
@@ -352,7 +334,7 @@ If the local `tests/` directory is present, run its unittest checks:
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-The current `.gitignore` excludes `tests/`, so local tests may not be available in a fresh clone. Postman files in `postman/` currently contain placeholder requests and an empty base URL; configure them before use. The notebook and refactoring notes are supporting material; runtime behaviour is implemented in `app/` and `static/index.html`.
+The current `.gitignore` excludes `tests/`, so local tests may not be available in a fresh clone. The notebook and refactoring notes are supporting material; runtime behaviour is implemented in `app/` and `static/index.html`.
 
 ### Automatic forecast periods
 

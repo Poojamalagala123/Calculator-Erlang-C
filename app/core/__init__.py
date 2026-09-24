@@ -22,15 +22,7 @@ from app.core.scheduling import (
     build_shift_requirements,
     calculate_schedule_headcount,
     build_monthly_agent_schedule,
-    mark_agent_leave,
-    calculate_leave_coverage,
-    find_leave_replacement_candidates,
-    assign_leave_replacement,
-    find_safe_shift_transfer_candidates,
-    assign_safe_shift_transfer,
-    resolve_agent_leave,
     validate_agent_rest_period,
-    swap_agent_shifts,
 )
 
 __all__ = [
@@ -53,13 +45,5 @@ __all__ = [
     "build_shift_requirements",
     "calculate_schedule_headcount",
     "build_monthly_agent_schedule",
-    "mark_agent_leave",
-    "calculate_leave_coverage",
-    "find_leave_replacement_candidates",
-    "assign_leave_replacement",
-    "find_safe_shift_transfer_candidates",
-    "assign_safe_shift_transfer",
-    "resolve_agent_leave",
     "validate_agent_rest_period",
-    "swap_agent_shifts",
 ]

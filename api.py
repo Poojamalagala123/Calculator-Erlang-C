@@ -8,16 +8,12 @@ Points directly to the decoupled app.main:app.
 from app.main import app, create_app
 from app.schemas.schedule import (
     MonthlyScheduleRequest,
-    AgentLeaveRequest,
-    AgentShiftSwapRequest,
 )
 
 __all__ = [
     "app",
     "create_app",
     "MonthlyScheduleRequest",
-    "AgentLeaveRequest",
-    "AgentShiftSwapRequest",
 ]
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from pyworkforce.queuing import ErlangC
 from app.core.ingestion.cleaner import clean_percent
 

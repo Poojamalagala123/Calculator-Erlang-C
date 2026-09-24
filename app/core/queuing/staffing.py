@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from app.core.queuing.erlang_c import required_agents
 

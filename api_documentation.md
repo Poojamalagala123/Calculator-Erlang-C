@@ -21,8 +21,6 @@ Interactive documentation:
 | `GET` | `/api/v1/jobs/{job_id}` | JSON response | Read job progress and completed result |
 | `GET` | `/api/v1/jobs/{job_id}/stream` | `text/event-stream` response | Stream job progress |
 | `POST` | `/api/v1/schedule/monthly` | `application/json` | Generate monthly agent roster |
-| `POST` | `/api/v1/schedule/leave` | `application/json` | Apply leave and attempt safe coverage resolution |
-| `POST` | `/api/v1/schedule/swap` | `application/json` | Swap two working agents' shifts |
 
 ---
 
@@ -482,226 +480,9 @@ OFF schedule row:
 
 ---
 
-# POST `/api/v1/schedule/leave`
-
-Apply leave with a manually selected replacement or automatic coverage.
-
-The dashboard sends `auto_assign: false` and `replacement_agent_id` (the selected agent ID). If coverage is needed, manual mode requires an eligible selection and never falls back to another agent. OFF agents must remain within the weekly work limit; transfers must preserve source-shift coverage. Minimum-rest validation is skipped for manual replacements.
-
-Both fields are optional for existing API clients: `auto_assign` defaults to `true`, and omitting the replacement ID retains automatic coverage with rest validation. Supplying a replacement ID always selects manual mode. If staffing is already sufficient, no replacement is assigned.
-
-## Request model
-
-```json
-{
-  "forecast": [...],
-  "schedule": [...],
-  "agent_id": "Agent 004",
-  "leave_date": "2025-01-12"
-}
-```
-
-## Validation
-
-- forecast must contain 1-40,000 rows;
-- schedule must contain 1-50,000 rows;
-- forecast must include `interval_start` and `scheduled_agents` to rebuild shift requirements;
-- `agent_id` must be 1-100 characters; `leave_date` must be 1-10 characters and parse as a date (use `YYYY-MM-DD`);
-- schedule must include `agent_id`, `date`, `shift_code`, `shift`, `status`;
-- exactly one matching schedule row must exist for the selected agent/date.
-
-## Optional replacement fields
-
-| Field | Type | Default | Meaning |
-|---|---|---|---|
-| `replacement_agent_id` | string/null | `null` | Selected replacement; 1-100 characters when supplied |
-| `auto_assign` | boolean | `true` | Set to `false` to require manual selection when coverage is needed |
-
-Add these fields to the leave request for dashboard-style manual coverage:
-
-```json
-{
-  "replacement_agent_id": "Agent 007",
-  "auto_assign": false
-}
-```
-
-This fragment supplements the required forecast, schedule, agent, and date fields. Invalid or missing manual selections return HTTP 400 when a replacement is needed. No alternative agent is automatically assigned.
-
-## Automatic resolution logic
-
-1. Mark leave and calculate coverage. No new leave action returns `NO_ACTION`; sufficient remaining coverage returns `NO_REPLACEMENT_REQUIRED`.
-2. Rank eligible OFF candidates and attempt the first candidate, including rest validation. Successful coverage returns `OFF_AGENT_COVER`.
-3. If coverage remains unresolved, rank eligible transfers from other shifts and attempt the first candidate with rest validation. Successful coverage returns `SHIFT_TRANSFER`.
-4. If coverage remains insufficient, return `UNRESOLVED` with `resolved: false` and the updated schedule.
-
-A chosen candidate failing rest validation raises HTTP 400 immediately. Automatic mode does not exhaustively retry all candidates or necessarily reach the transfer step after a failed OFF-agent rest check.
-
-If the selected agent is already OFF or leave does not need to be applied, the method can be `NO_ACTION`.
-
-### OFF-agent candidate rules
-
-Candidate must:
-
-- be OFF on the leave date;
-- not be the leave agent;
-- stay at or below five working days in that Monday-Sunday week after covering.
-
-Ranking:
-
-```text
-fewest weekly workdays
-→ fewest monthly workdays
-→ agent ID
-```
-
-### Safe shift-transfer rules
-
-The source shift must remain at or above required staffing after the candidate is moved.
-
-Ranking:
-
-```text
-most spare agents in source shift
-→ fewest monthly workdays
-→ agent ID
-```
-
-### Audit values
-
-The updated schedule may contain:
-
-```text
-original_shift_code
-original_shift
-previous_shift_code
-previous_shift
-assignment_type
-```
-
-Assignment types include:
-
-```text
-LEAVE_COVER
-SHIFT_TRANSFER
-```
-
-## Response
-
-```json
-{
-  "result": {
-    "resolved": true,
-    "method": "OFF_AGENT_COVER",
-    "leave": {},
-    "coverage_before": {},
-    "coverage_after": {},
-    "replacement": {},
-    "message": "..."
-  },
-  "schedule": []
-}
-```
-
-Possible methods:
-
-```text
-NO_ACTION
-NO_REPLACEMENT_REQUIRED
-OFF_AGENT_COVER
-SHIFT_TRANSFER
-UNRESOLVED
-```
-
----
-
-# POST `/api/v1/schedule/swap`
-
-Swap the shifts of two agents on the same date.
-
-## Request model
-
-```json
-{
-  "schedule": [...],
-  "agent_1": "Agent 001",
-  "agent_2": "Agent 002",
-  "swap_date": "2025-01-18"
-}
-```
-
-## Validation
-
-The request fails when:
-
-- schedule is empty or exceeds 50,000 rows;
-- either agent ID is outside 1-100 characters, or `swap_date` is outside 1-10 characters (use `YYYY-MM-DD`);
-- both agent IDs are the same;
-- one agent has no row on the date;
-- one agent has multiple rows on the date;
-- one agent is not `WORK`;
-- one agent is `OFF` or `LEAVE`;
-- both agents already have the same shift;
-- either post-swap assignment violates the minimum rest rule.
-
-## Processing
-
-The API stores both original shift assignments, swaps `shift_code` and `shift`, and writes:
-
-```text
-assignment_type = SHIFT_SWAP
-```
-
-Both agents are then independently rest-validated.
-
-## Response
-
-```json
-{
-  "result": {
-    "swap_applied": true,
-    "date": "2025-01-18",
-    "agent_1": "Agent 001",
-    "agent_1_previous_shift": "MORNING",
-    "agent_1_new_shift": "EVENING",
-    "agent_2": "Agent 002",
-    "agent_2_previous_shift": "EVENING",
-    "agent_2_new_shift": "MORNING",
-    "agent_1_rest_validation": {},
-    "agent_2_rest_validation": {},
-    "message": "..."
-  },
-  "schedule": []
-}
-```
-
----
-
 # Rest-rule behaviour
 
-The minimum rest period is currently 8 hours for automatic leave coverage and shift swaps. Manually selected leave replacements skip rest validation, while retaining weekly work-limit and source-coverage eligibility checks.
-
-For a modified working shift, the validator compares it with the agent's working assignment on the previous and next calendar date present in the supplied schedule. Missing adjacent dates are not checked.
-
-A request fails when:
-
-```text
-new_shift_start - previous_shift_end < 8 hours
-```
-
-or:
-
-```text
-next_shift_start - new_shift_end < 8 hours
-```
-
-Shift times:
-
-```text
-NIGHT   00:00-08:00
-MORNING 08:00-16:00
-EVENING 16:00-24:00
-```
+Monthly generation enforces at least eight hours between consecutive work shifts within the generated month, using configured shift times. Monthly schedules are generated independently.
 
 ---
 
@@ -714,14 +495,12 @@ Limits are defined in `app/config.py` and the request models in `app/schemas/sch
 | Forecast uploads | 20 files, 100 MiB per file |
 | Requested forecast horizon | 1-3650 days |
 | `max_agents` / supplied monthly `agent_count` | 1-10,000 |
-| Forecast rows in monthly/leave JSON requests | 1-40,000 |
-| Schedule rows in leave/swap JSON requests | 1-50,000 |
+| Forecast rows in monthly JSON requests | 1-40,000 |
 | Agent ID fields | 1-100 characters |
-| Leave/swap date fields | 1-10 characters; use `YYYY-MM-DD` |
 
 These array limits apply to incoming scheduling requests; generating a large forecast or roster does not guarantee it fits a subsequent request. Supply the relevant month's source forecast rows when needed. The CSV's aggregated display columns do not replace the original API fields.
 
-Request examples using `[...]` are schematic: replace each placeholder with the actual returned forecast or schedule rows before sending JSON. Preserve the latest schedule after leave or swap operations.
+Request examples using `[...]` are schematic: replace each placeholder with the actual returned forecast or schedule rows before sending JSON.
 
 # HTTP error behaviour
 
@@ -756,8 +535,6 @@ Used for unexpected exceptions. Messages are prefixed by operation, for example:
 ```text
 STL forecast failed: ...
 Monthly schedule generation failed: ...
-Agent leave processing failed: ...
-Shift swap processing failed: ...
 ```
 
 ---
@@ -781,42 +558,16 @@ CSV downloads are assembled in the browser. The forecast and scheduling endpoint
 
 For zero-call hours, AHT and service level use arithmetic averages of the source intervals. These calculations match the dashboard table. The last hourly label ends at `24:00`. A full-year export contains 8,760 data rows, or 8,784 in a leap year. Forecasts created before leap-day support must be regenerated to include February 29.
 
-## Roster week filter
+## Daily scheduled agents CSV
 
-The table defaults to **Whole month**. **Week 1**, **Week 2**, etc. represent Monday-Sunday calendar weeks, clipped to the selected month. A month starting on Wednesday shows Wednesday-Sunday in its first week; months can have four, five, or six displayed weeks. Filtering changes the visible day columns and `Total shifts`, without modifying API schedule rows. Generating a new roster resets the filter; leave and swap updates preserve it.
+**Download Daily Scheduled Agents CSV** exports the exact displayed table: Date and the three shift columns, including custom shift times and all displayed counts. The filename is daily_scheduled_agents_<year>-<month>.csv. No additional months are generated.
 
-## Yearly roster CSV
-
-**Download Yearly Roster CSV** produces `agent_roster_<year>.csv` with 12 January-December sections separated by blank rows. Each section contains:
-
-1. A title such as `Agent Monthly Roster - April 2026` (month names follow browser locale).
-2. A header: `Agent`, each calendar day formatted like `01 Wed`, then `Total shifts`.
-3. One row per agent, containing the dashboard's shift labels or `OFF`/`LEAVE`, followed by the number of `WORK` assignments in that month.
-
-The export always uses full months, regardless of the selected week. Cached monthly rosters retain leave and swap edits. For missing months the browser calls `/api/v1/schedule/monthly` sequentially with that month's forecast rows, the output year, the month, and the agent-count setting from the most recent successful dashboard generation. `agent_count: null` calculates minimum staffing independently for each missing month. Cached months retain their existing staffing and edits.
-
-Missing forecast data, insufficient headcount, or another monthly-generation error stops the export without saving a partial CSV. The dashboard displays progress and the error. Successful monthly results remain cached for retries during the same forecast session. A monthly response with `coverage_ok: false` is not treated as an export error; the yearly CSV combines independent monthly rosters without annual boundary validation.
-
-Both CSV files use UTF-8 with BOM and CRLF row endings. Fields containing commas, quotes, or newlines are CSV-escaped. CSV preserves row/column layout but cannot store dashboard colours, styles, or separate spreadsheet worksheets.
+Both CSV downloads use UTF-8 with BOM and CRLF line endings, with commas, quotes and newlines escaped.
 
 ---
 
 # State handling
 
-The API does not store forecast or schedule state in a database. Async job status and results live in the server process's memory and disappear on restart. They are not shared between separate server processes.
+The API does not store forecasts or schedules in a database. Async job results live in process memory and disappear on restart. The dashboard keeps its forecast and current schedule in browser memory until a new forecast starts or the page is reloaded. Monthly schedule requests supply the forecast rows.
 
-The dashboard keeps forecasts and monthly rosters in browser memory. Starting a new forecast clears the monthly roster cache; reloading the page loses browser session state. Yearly CSV export reuses the cached monthly rosters for the current forecast.
-
-The calling frontend/client is expected to pass the current forecast and/or schedule into later endpoints:
-
-```text
-STL response.forecast
-        ↓
-monthly schedule request.forecast
-        ↓
-monthly response.schedule
-        ↓
-leave request.schedule / swap request.schedule
-```
-
-Always use the latest returned schedule after a leave or swap operation so later requests operate on the current roster state.
+The leave and shift-swap APIs have been removed.

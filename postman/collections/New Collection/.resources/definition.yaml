@@ -1,6 +1,0 @@
-$kind: collection
-variables:
-  "{{base_url}}": ""
-  job_id: ""
-  forecast_json: ""
-  output_year: ""

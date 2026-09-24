@@ -421,6 +421,40 @@
             *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
         }
 
+
+        #schedulePanel { padding: 28px; }
+        .schedule-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
+        .schedule-panel-heading h2 { margin: 0 0 6px; }
+        .schedule-panel-heading .note { margin: 0; max-width: 680px; }
+        .schedule-coverage-badge { flex-shrink: 0; padding: 6px 12px; border: 1px solid #cce6e3; border-radius: 999px; background: #edf8f5; color: #126663; font-size: 12px; font-weight: 600; }
+        .schedule-layout { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(0, 2fr); gap: 28px; }
+        .schedule-layout fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+        .schedule-layout legend { padding: 0; margin-bottom: 16px; color: var(--ink); font-size: 14px; font-weight: 700; }
+        .schedule-layout legend span { margin-left: 8px; color: var(--muted); font-size: 12px; font-weight: 400; }
+        .schedule-settings-fields { display: grid; gap: 16px; }
+        .schedule-settings-fields .note { margin: 6px 0 0; }
+        .schedule-shift-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+        .schedule-shift-card { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #f8fafc; }
+        .schedule-shift-badge { display: inline-block; margin-bottom: 16px; color: #087f83; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+        .schedule-shift-card input { width: 100%; min-width: 0; min-height: 44px; background: white; font-variant-numeric: tabular-nums; }
+        .schedule-shift-end { margin-top: 9px; min-height: 21px; }
+        .schedule-shift-help { margin: 12px 0 0; }
+        .schedule-action-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--line); margin-top: 24px; padding-top: 20px; }
+        .schedule-action-bar button { width: auto; min-height: 46px; padding: 11px 20px; }
+        #scheduleStatus:not(:empty) { margin: 16px 0 0; }
+        @media (max-width: 1000px) {
+            .schedule-layout { grid-template-columns: 1fr; gap: 24px; }
+            .schedule-settings-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 600px) {
+            #schedulePanel { padding: 20px 16px; }
+            .schedule-panel-heading { flex-direction: column; gap: 12px; margin-bottom: 22px; }
+            .schedule-settings-fields, .schedule-shift-grid { grid-template-columns: 1fr; }
+            .schedule-shift-card { padding: 14px; }
+            .schedule-shift-badge { margin-bottom: 10px; }
+            .schedule-action-bar { align-items: stretch; }
+            .schedule-action-bar button { width: 100%; }
+        }
     </style>
 </head>
 
@@ -651,107 +685,75 @@
 
     </section>
 
-    <div
-        class="panel"
-        id="schedulePanel"
-        hidden
-    >
-
-        <h2>Monthly Agent Schedule</h2>
-
-        <p class="note">
-            Create a 24×7 monthly roster using three equal 8-hour shifts.
-            Each agent can work a maximum of five days per week,
-            providing two weekly days off.
-        </p>
-
-        <div class="form-grid">
-
+    <div class="panel" id="schedulePanel" hidden>
+        <div class="schedule-panel-heading">
             <div>
-
-                <label for="scheduleMonth">
-                    Schedule month
-                </label>
-
-                <select id="scheduleMonth">
-
-                    <option value="1">January</option>
-                    <option value="2">February</option>
-                    <option value="3">March</option>
-                    <option value="4">April</option>
-                    <option value="5">May</option>
-                    <option value="6">June</option>
-                    <option value="7">July</option>
-                    <option value="8">August</option>
-                    <option value="9">September</option>
-                    <option value="10">October</option>
-                    <option value="11">November</option>
-                    <option value="12">December</option>
-
-                </select>
-
+                <h2>Monthly Agent Schedule</h2>
+                <p class="note">Plan your coverage with three 8-hour shifts and two days off per agent each week.</p>
             </div>
-
-            <div>
-
-                <label for="scheduleAgentCount">
-                    Available agent count
-                </label>
-
-                <input
-                    id="scheduleAgentCount"
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="Auto"
-                >
-
-            </div>
-
-            <div>
-                <label for="shiftStart1">1st shift start</label>
-                <input id="shiftStart1" type="time" value="00:00" step="60" required>
-                <div class="note" id="shiftEnd1"></div>
-            </div>
-            <div>
-                <label for="shiftStart2">2nd shift start</label>
-                <input id="shiftStart2" type="time" value="08:00" step="60" required>
-                <div class="note" id="shiftEnd2"></div>
-            </div>
-            <div>
-                <label for="shiftStart3">3rd shift start</label>
-                <input id="shiftStart3" type="time" value="16:00" step="60" required>
-                <div class="note" id="shiftEnd3"></div>
-            </div>
-            <p class="note">Enter three start times, 8 hours apart in shift order. Overnight shifts are listed on their start date.</p>
-
-            <div class="actions">
-
-                <button
-                    id="generateScheduleButton"
-                    type="button"
-                >
-                    Generate Monthly Schedule
-                </button>
-
-                <button
-                    id="downloadScheduleButton"
-                    class="secondary"
-                    type="button"
-                    disabled
-                >
-                    Download Daily Scheduled Agents CSV
-                </button>
-
-            </div>
-
+            <span class="schedule-coverage-badge">24-hour coverage</span>
         </div>
 
-        <div
-            id="scheduleStatus"
-            class="status" role="status" aria-live="polite"
-        ></div>
+        <div class="schedule-layout">
+            <fieldset class="schedule-settings">
+                <legend>Schedule settings</legend>
+                <div class="schedule-settings-fields">
+                    <div>
+                        <label for="scheduleMonth">Schedule month</label>
+                        <select id="scheduleMonth">
+                            <option value="1">January</option>
+                            <option value="2">February</option>
+                            <option value="3">March</option>
+                            <option value="4">April</option>
+                            <option value="5">May</option>
+                            <option value="6">June</option>
+                            <option value="7">July</option>
+                            <option value="8">August</option>
+                            <option value="9">September</option>
+                            <option value="10">October</option>
+                            <option value="11">November</option>
+                            <option value="12">December</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="scheduleAgentCount">Available agents</label>
+                        <input id="scheduleAgentCount" type="number" min="1" step="1" placeholder="Auto" aria-describedby="agentCountHelp">
+                        <p class="note" id="agentCountHelp">Leave blank to calculate the required team size.</p>
+                    </div>
+                </div>
+            </fieldset>
 
+            <fieldset class="schedule-shifts">
+                <legend>Shift times <span>8 hours each</span></legend>
+                <div class="schedule-shift-grid">
+                    <div class="schedule-shift-card">
+                        <span class="schedule-shift-badge">Shift 1</span>
+                        <label for="shiftStart1">1st shift start</label>
+                        <input id="shiftStart1" type="time" value="00:00" step="60" required aria-describedby="shiftEnd1">
+                        <div class="note schedule-shift-end" id="shiftEnd1" aria-live="polite"></div>
+                    </div>
+                    <div class="schedule-shift-card">
+                        <span class="schedule-shift-badge">Shift 2</span>
+                        <label for="shiftStart2">2nd shift start</label>
+                        <input id="shiftStart2" type="time" value="08:00" step="60" required aria-describedby="shiftEnd2">
+                        <div class="note schedule-shift-end" id="shiftEnd2" aria-live="polite"></div>
+                    </div>
+                    <div class="schedule-shift-card">
+                        <span class="schedule-shift-badge">Shift 3</span>
+                        <label for="shiftStart3">3rd shift start</label>
+                        <input id="shiftStart3" type="time" value="16:00" step="60" required aria-describedby="shiftEnd3">
+                        <div class="note schedule-shift-end" id="shiftEnd3" aria-live="polite"></div>
+                    </div>
+                </div>
+                <p class="note schedule-shift-help">Start times must be 8 hours apart. Overnight shifts belong to the date they start.</p>
+            </fieldset>
+        </div>
+
+        <div class="schedule-action-bar">
+            <button id="generateScheduleButton" type="button">Generate Monthly Schedule</button>
+            <button id="downloadScheduleButton" class="secondary" type="button" disabled>Download Daily Scheduled Agents CSV</button>
+        </div>
+        <div id="scheduleStatus" class="status" role="status" aria-live="polite"></div>
     </div>
 
     <section
@@ -852,7 +854,7 @@
 
         <div class="table-box">
             <h2>Daily Scheduled Agents</h2>
-            <p class="note">Scheduled agent counts for every date in the roster month, excluding days off and leave.</p>
+            <p class="note">Scheduled agent counts for every date in the roster month, excluding days off.</p>
             <div class="schedule-table-wrapper">
                 <table class="schedule-table" aria-label="Daily scheduled agents by shift">
                     <thead>

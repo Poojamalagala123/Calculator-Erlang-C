@@ -1,8 +1,6 @@
 from __future__ import annotations
-import math
 from collections import defaultdict
 import pandas as pd
-from app.core.constants import SHIFT_DEFINITIONS
 from app.core.scheduling.shifts import build_shift_requirements, calculate_schedule_headcount, shift_definitions
 
 def build_monthly_agent_schedule(

@@ -1,3 +1,5 @@
+> Historical notes: these describe an earlier STL implementation. Current code uses rolling-profile forecasting. Leave/swap APIs, unused response schemas and placeholder Postman requests have since been removed. See README.md for current behavior.
+
 # Refactoring Summary
 
 A simple overview of what was done, the speed improvements, and what each file does.
