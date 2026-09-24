@@ -7,6 +7,7 @@ class MonthlyScheduleRequest(BaseModel):
     year: int
     month: int = Field(ge=1, le=12)
     agent_count: int | None = Field(default=None, gt=0, le=MAX_AGENT_COUNT)
+    shift_start_times: list[str] | None = Field(default=None, min_length=3, max_length=3)
 
 class AgentLeaveRequest(BaseModel):
     forecast: list[dict] = Field(min_length=1, max_length=MAX_FORECAST_ROWS)

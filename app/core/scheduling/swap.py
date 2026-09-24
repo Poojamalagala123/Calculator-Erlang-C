@@ -1,5 +1,6 @@
 from __future__ import annotations
 import pandas as pd
+from app.core.scheduling.shifts import row_shift_hours
 
 def validate_agent_rest_period(
     schedule: pd.DataFrame,
@@ -72,14 +73,14 @@ def validate_agent_rest_period(
     target_start = (
         target_date
         + pd.Timedelta(
-            hours=shift_lookup[target_shift_code]["start"]
+            hours=row_shift_hours(target_row)["start"]
         )
     )
 
     target_end = (
         target_date
         + pd.Timedelta(
-            hours=shift_lookup[target_shift_code]["end"]
+            hours=row_shift_hours(target_row)["end"]
         )
     )
 
@@ -115,9 +116,7 @@ def validate_agent_rest_period(
             previous_end = (
                 previous_date
                 + pd.Timedelta(
-                    hours=shift_lookup[
-                        previous_shift_code
-                    ]["end"]
+                    hours=row_shift_hours(previous_row)["end"]
                 )
             )
 
@@ -162,9 +161,7 @@ def validate_agent_rest_period(
             next_start = (
                 next_date
                 + pd.Timedelta(
-                    hours=shift_lookup[
-                        next_shift_code
-                    ]["start"]
+                    hours=row_shift_hours(next_row)["start"]
                 )
             )
 

@@ -708,6 +708,23 @@
 
             </div>
 
+            <div>
+                <label for="shiftStart1">1st shift start</label>
+                <input id="shiftStart1" type="time" value="00:00" step="60" required>
+                <div class="note" id="shiftEnd1"></div>
+            </div>
+            <div>
+                <label for="shiftStart2">2nd shift start</label>
+                <input id="shiftStart2" type="time" value="08:00" step="60" required>
+                <div class="note" id="shiftEnd2"></div>
+            </div>
+            <div>
+                <label for="shiftStart3">3rd shift start</label>
+                <input id="shiftStart3" type="time" value="16:00" step="60" required>
+                <div class="note" id="shiftEnd3"></div>
+            </div>
+            <p class="note">Enter three start times, 8 hours apart in shift order. Overnight shifts are listed on their start date.</p>
+
             <div class="actions">
 
                 <button
@@ -723,7 +740,7 @@
                     type="button"
                     disabled
                 >
-                    Download Yearly Roster CSV
+                    Download Daily Scheduled Agents CSV
                 </button>
 
             </div>
@@ -750,9 +767,7 @@
 
             <strong>Shift structure:</strong>
 
-            Night 00:00–08:00 &nbsp; | &nbsp;
-            Morning 08:00–16:00 &nbsp; | &nbsp;
-            Evening 16:00–00:00
+            <span id="shiftStructure">1st 00:00-08:00 | 2nd 08:00-16:00 | 3rd 16:00-00:00</span>
 
         </div>
 
@@ -843,9 +858,9 @@
                     <thead>
                         <tr>
                             <th scope="col">Date</th>
-                            <th scope="col">1st shift (00:00-08:00)</th>
-                            <th scope="col">2nd shift (08:00-16:00)</th>
-                            <th scope="col">3rd shift (16:00-00:00)</th>
+                            <th scope="col" id="dailyShiftHeader1">1st shift (00:00-08:00)</th>
+                            <th scope="col" id="dailyShiftHeader2">2nd shift (08:00-16:00)</th>
+                            <th scope="col" id="dailyShiftHeader3">3rd shift (16:00-00:00)</th>
                         </tr>
                     </thead>
                     <tbody id="dailyShiftCountsBody"></tbody>
@@ -904,9 +919,6 @@
     let scheduleRows = [];
 
     let scheduleSummary = null;
-    const monthlyRosterCache = new Map();
-    let rosterAgentCount = null;
-    let rosterExportRunning = false;
 
     const schedulePanel =
         document.getElementById("schedulePanel");
@@ -1636,11 +1648,6 @@
             row.raw_agents, row.scheduled_agents, row.service_level_percent.toFixed(2)];
     }
 
-    function rosterDateLabel(date) {
-        const parsed = new Date(`${date}T00:00:00`);
-        return `${String(parsed.getDate()).padStart(2, "0")} ${parsed.toLocaleDateString(undefined, { weekday: "short" })}`;
-    }
-
     function downloadCsv(rows, filename) {
         const csv = rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
         const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
@@ -1772,8 +1779,6 @@
             scheduleRows = [];
 
             scheduleSummary = null;
-            monthlyRosterCache.clear();
-            rosterAgentCount = null;
 
             downloadScheduleButton.disabled =
                 true;
@@ -1984,7 +1989,43 @@
 
     function renderScheduleResults(rows) {
         renderDailyShiftCounts(rows);
-        if (rows.length) monthlyRosterCache.set(rows[0].date.slice(0, 7), rows);
+    }
+
+    function shiftInputTimes() {
+        return [1, 2, 3].map(index => document.getElementById("shiftStart" + index).value);
+    }
+
+    function shiftMinutes(value) {
+        if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return NaN;
+        const [hours, minutes] = value.split(":").map(Number);
+        return hours * 60 + minutes;
+    }
+
+    function updateShiftEndTimes() {
+        shiftInputTimes().forEach((value, index) => {
+            const start = shiftMinutes(value);
+            const end = (start + 480) % 1440;
+            document.getElementById("shiftEnd" + (index + 1)).textContent = Number.isFinite(start)
+                ? "Ends " + String(Math.floor(end / 60)).padStart(2, "0") + ":" +
+                    String(end % 60).padStart(2, "0") + (start + 480 >= 1440 ? " (next day)" : "")
+                : "Enter a start time.";
+        });
+    }
+
+    [1, 2, 3].forEach(index => {
+        document.getElementById("shiftStart" + index).addEventListener("input", updateShiftEndTimes);
+    });
+    updateShiftEndTimes();
+
+    function renderShiftLabels(shifts) {
+        const names = ["1st", "2nd", "3rd"];
+        document.getElementById("shiftStructure").textContent = shifts.map(
+            (shift, index) => names[index] + " " + shift.label
+        ).join(" | ");
+        shifts.forEach((shift, index) => {
+            document.getElementById("dailyShiftHeader" + (index + 1)).textContent =
+                names[index] + " shift (" + shift.label + ")";
+        });
     }
 
     generateScheduleButton.addEventListener(
@@ -2035,7 +2076,18 @@
 
             }
 
+            const shiftStartTimes = shiftInputTimes();
+            const starts = shiftStartTimes.map(shiftMinutes);
+            if (starts.some(value => !Number.isFinite(value)) ||
+                starts.some((value, index) => (starts[(index + 1) % 3] - value + 1440) % 1440 !== 480)) {
+                scheduleStatus.className = "status error";
+                scheduleStatus.textContent = "Enter three start times, 8 hours apart in shift order, with no gaps or overlaps.";
+                return;
+            }
+
             const payload = {
+                shift_start_times: shiftStartTimes,
+
 
                 forecast:
                     forecastRows,
@@ -2101,7 +2153,7 @@
                 if (!response.ok) {
 
                     throw new Error(
-                        data.detail
+                        (typeof data.detail === "string" ? data.detail : null)
                         || "Schedule generation failed."
                     );
 
@@ -2111,7 +2163,7 @@
                     data.schedule
                     || [];
 
-                rosterAgentCount = payload.agent_count ?? null;
+                renderShiftLabels(data.summary.shifts);
                 scheduleSummary =
                     data.summary;
 
@@ -2167,68 +2219,23 @@
         }
     );
 
-    function rosterCsvSection(rows, year, month) {
-        const monthLabel = new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
-        const dates = [...new Set(rows.map(row => row.date))].sort();
-        const agents = [...new Set(rows.map(row => row.agent_id))];
-        const cells = new Map(rows.map(row => [`${row.agent_id}|${row.date}`, row]));
-        return [
-            [`Agent Monthly Roster - ${monthLabel}`],
-            ["Agent", ...dates.map(rosterDateLabel), "Total shifts"],
-            ...agents.map(agent => {
-                const shifts = dates.map(date => cells.get(`${agent}|${date}`));
-                return [agent, ...shifts.map(row => row?.shift || "OFF"),
-                    shifts.reduce((total, row) => total + (row?.status === "WORK" ? 1 : 0), 0)];
-            })
-        ];
+    function dailyScheduledAgentsCsvRows() {
+        const table = document.getElementById("dailyShiftCountsBody").closest("table");
+        return Array.from(table.rows, row =>
+            Array.from(row.cells, cell => cell.textContent.trim())
+        );
     }
 
-    downloadScheduleButton.addEventListener("click", async () => {
-        if (!scheduleRows.length || rosterExportRunning) return;
-        const year = Number(scheduleRows[0].date.slice(0, 4));
-        const exportForecast = forecastRows;
-        const agentCount = rosterAgentCount;
-        const originalLabel = downloadScheduleButton.textContent;
-        rosterExportRunning = true;
-        downloadScheduleButton.disabled = true;
-        scheduleStatus.className = "status";
+    downloadScheduleButton.addEventListener("click", () => {
+        if (!scheduleRows.length) return;
+        const month = scheduleRows[0].date.slice(0, 7);
         try {
-            for (let month = 1; month <= 12; month++) {
-                const key = `${year}-${String(month).padStart(2, "0")}`;
-                if (monthlyRosterCache.has(key)) continue;
-                downloadScheduleButton.textContent = `Preparing month ${month}/12...`;
-                scheduleStatus.textContent = `Preparing yearly roster: month ${month} of 12...`;
-                const forecast = exportForecast.filter(row => row.interval_start.slice(0, 7) === key);
-                if (!forecast.length) throw new Error(`No forecast available for ${key}. Generate a full-year forecast first.`);
-                const response = await fetch("/api/v1/schedule/monthly", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ forecast, year, month, agent_count: agentCount })
-                });
-                const data = await response.json();
-                if (forecastRows !== exportForecast) throw new Error("Forecast changed during export. Generate a roster and download again.");
-                if (!response.ok) throw new Error(`Cannot generate ${key}: ${typeof data.detail === "string" ? data.detail : "Schedule generation failed."}`);
-                if (!data.schedule?.length) throw new Error(`No roster returned for ${key}.`);
-                // Preserve a schedule generated in the dashboard while this request was running.
-                if (!monthlyRosterCache.has(key)) monthlyRosterCache.set(key, data.schedule);
-            }
-            if (forecastRows !== exportForecast) throw new Error("Forecast changed during export. Generate a roster and download again.");
-            const csvRows = [];
-            for (let month = 1; month <= 12; month++) {
-                if (month > 1) csvRows.push([]);
-                const key = `${year}-${String(month).padStart(2, "0")}`;
-                csvRows.push(...rosterCsvSection(monthlyRosterCache.get(key), year, month));
-            }
-            downloadCsv(csvRows, `agent_roster_${year}.csv`);
+            downloadCsv(dailyScheduledAgentsCsvRows(), `daily_scheduled_agents_${month}.csv`);
             scheduleStatus.className = "status success";
-            scheduleStatus.textContent = `Downloaded ${year} roster with 12 monthly tables.`;
+            scheduleStatus.textContent = `Downloaded daily scheduled agents for ${month}.`;
         } catch (error) {
             scheduleStatus.className = "status error";
             scheduleStatus.textContent = error.message;
-        } finally {
-            rosterExportRunning = false;
-            downloadScheduleButton.textContent = originalLabel;
-            downloadScheduleButton.disabled = !scheduleRows.length;
         }
     });
 

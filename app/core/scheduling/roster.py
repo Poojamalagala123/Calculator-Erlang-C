@@ -3,19 +3,21 @@ import math
 from collections import defaultdict
 import pandas as pd
 from app.core.constants import SHIFT_DEFINITIONS
-from app.core.scheduling.shifts import build_shift_requirements, calculate_schedule_headcount
+from app.core.scheduling.shifts import build_shift_requirements, calculate_schedule_headcount, shift_definitions
 
 def build_monthly_agent_schedule(
     forecast: pd.DataFrame,
     year: int,
     month: int,
     agent_count: int | None = None,
+    shift_start_times: list[str] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
 
     requirements = build_shift_requirements(
         forecast=forecast,
         year=year,
         month=month,
+        shift_start_times=shift_start_times,
     )
 
     minimum_agents = calculate_schedule_headcount(
@@ -167,6 +169,7 @@ def build_monthly_agent_schedule(
         "minimum_agents": int(minimum_agents),
         "agent_count": int(agent_count),
         "shift_hours": 8,
+        "shifts": shift_definitions(shift_start_times),
         "working_days_per_week": 5,
         "days_off_per_week": 2,
         "total_required_shift_assignments": int(

@@ -78,7 +78,7 @@ Calculator-Erlang-C/
 4. Select a date and table interval to inspect staffing. Download the hourly forecast for the whole output year.
 5. Select a schedule month and optionally enter **Available agent count**. Leave it blank for automatic minimum-headcount estimation, then select **Generate Monthly Schedule**.
 6. Review the staffing summary and daily scheduled-agent counts for each shift.
-7. Select **Download Yearly Roster CSV** to export 12 monthly tables, generating missing months as needed.
+7. Select **Download Daily Scheduled Agents CSV** to export the displayed daily staffing table with its current shift times and counts.
 
 ## STL inputs
 
@@ -295,15 +295,13 @@ A complete annual forecast produces 8,760 CSV data rows, or 8,784 in a leap year
 
 The dashboard shows scheduled-agent counts for every day of the selected month, grouped by the three 8-hour shifts. Only working assignments count. The agent-level monthly roster, leave management, and shift swap controls are not displayed; the leave and swap API endpoints remain available.
 
-### Yearly roster CSV
+### Daily scheduled agents CSV
 
-**Download Yearly Roster CSV** creates `agent_roster_<year>.csv` with 12 January-December sections separated by blank rows. Each section contains a month title, an `Agent` column, each calendar day formatted like `01 Wed`, and `Total shifts`. Rows contain the dashboard's shift labels, `OFF`, or `LEAVE`. Totals count `status: WORK` assignments only.
+**Download Daily Scheduled Agents CSV** exports the exact displayed **Daily Scheduled Agents** table as `daily_scheduled_agents_<year>-<month>.csv`. Its four columns are Date and the three shift headings, including the generated custom time ranges. Each row contains the displayed date and working-agent counts in the same order, including zero counts.
 
-The download exports full months. It reuses monthly schedules cached during the current forecast session. Missing months are generated sequentially through `/api/v1/schedule/monthly`, using that month's forecast rows and the agent-count setting from the most recent successful dashboard generation. Null headcount calculates each missing month's minimum independently. Cached months keep their original staffing settings.
+The export reads the rendered table directly and requires no additional API requests. Changing form fields alone does not change the table or export; generate a schedule to apply new settings.
 
-Missing forecast data, insufficient requested headcount, or monthly-generation errors stop the download without saving a partial CSV. Successful generated months remain cached for retries. A returned monthly coverage shortage is not itself treated as an export error.
-
-Both exports are built in the browser as UTF-8 CSV with BOM and CRLF row endings. Commas, quotes, and line breaks are escaped. CSV keeps table rows and columns, but not dashboard colours or separate spreadsheet worksheets; the 12 roster sections share one file.
+Both exports are built in the browser as UTF-8 CSV with BOM and CRLF row endings. Commas, quotes, and line breaks are escaped.
 
 ## Configuration, state, and logging
 
@@ -321,7 +319,7 @@ Both exports are built in the browser as UTF-8 CSV with BOM and CRLF row endings
 
 Schedule/leave/swap agent IDs have a maximum of 100 characters; date strings have a maximum of 10 characters and should use `YYYY-MM-DD`. Very large generated monthly rosters can exceed the row limit for subsequent leave/swap requests.
 
-Job status/results live in process memory and are lost on restart. Separate server processes do not share jobs; the current background manager is a local thread pool. Forecast and schedule state are not stored in a database. The browser caches monthly rosters, but starting a new forecast clears that cache, and reloading the page loses browser state.
+Job status/results live in process memory and are lost on restart. Separate server processes do not share jobs; the current background manager is a local thread pool. Forecast and schedule state are not stored in a database. The browser keeps the current monthly schedule until a new forecast starts or the page is reloaded.
 
 Requests are logged with method, path, status, duration, and an ID returned in `X-Request-ID`. Background workers log progress and errors. Logs go to the console and `logs/app_<date>.log` using daily rotation configured with `backupCount=30`. Temporary upload files are removed after processing.
 
@@ -370,3 +368,9 @@ The default dashboard forecast uses the inclusive date span from the earliest to
 For example, August 1-31, 2026 predicts September 1-30, 2026. A 28-day period ending partway through August also predicts September. Monthly and yearly predictions begin on the first day of the following calendar month or year; leap years and variable month lengths are handled automatically.
 
 Explicit non-default API forecast durations retain their requested length, except that inputs spanning fewer than seven days still predict only the next day. Both synchronous and asynchronous responses report the effective duration.
+
+### Manual shift times
+
+Monthly Agent Schedule accepts three start times in shift order. Each shift lasts 8 hours; starts must be 8 hours apart around the clock (for example 06:00, 14:00, 22:00). End times are calculated automatically. Defaults remain 00:00, 08:00, 16:00. The monthly API accepts an optional `shift_start_times` list of three HH:MM strings.
+
+An overnight shift belongs to its start date. Staffing uses the peak forecast requirement across that shift, including the following day's available intervals. At the forecast boundary only available intervals can be evaluated; the first date's early hours belong to the preceding date's overnight shift. Rest checks use actual shift times. Daily counts, schedule labels and daily scheduled-agent exports use the selected times.

@@ -15,6 +15,8 @@ from app.core.scheduling import (
     swap_agent_shifts,
 )
 
+from app.core.scheduling.shifts import schedule_start_times
+
 router = APIRouter(prefix="/schedule", tags=["Agent Scheduling"])
 
 @router.post("/monthly")
@@ -32,6 +34,7 @@ def monthly_schedule(request: MonthlyScheduleRequest) -> dict:
             year=request.year,
             month=request.month,
             agent_count=request.agent_count,
+            shift_start_times=request.shift_start_times,
         )
 
         return {
@@ -72,6 +75,7 @@ def apply_agent_leave(request: AgentLeaveRequest) -> dict:
             forecast=forecast,
             year=year,
             month=month,
+            shift_start_times=schedule_start_times(schedule),
         )
 
         updated_schedule, result = resolve_agent_leave(

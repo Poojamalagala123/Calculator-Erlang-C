@@ -24,3 +24,4 @@ logs/
 tests/*
 tests/evidence/*
 
+!tests/test_manual_shift_times.py
