@@ -16,7 +16,7 @@ Interactive documentation:
 |---|---|---|---|
 | `GET` | `/` | — | Serve dashboard or return service information |
 | `GET` | `/health` | — | Return health and version |
-| `POST` | `/api/v1/cdr/stl-forecast` | `multipart/form-data` | Forecast calls and Erlang C staffing using STL |
+| `POST` | `/api/v1/cdr/stl-forecast` | `multipart/form-data` | Forecast calls using rolling profiles and calculate Erlang C staffing |
 | `POST` | `/api/v1/cdr/stl-forecast/async` | `multipart/form-data` | Submit background forecast job |
 | `GET` | `/api/v1/jobs/{job_id}` | JSON response | Read job progress and completed result |
 | `GET` | `/api/v1/jobs/{job_id}/stream` | `text/event-stream` response | Stream job progress |
@@ -54,7 +54,7 @@ Otherwise the fallback response is service information similar to:
 
 # POST `/api/v1/cdr/stl-forecast`
 
-Forecast future contact volume with STL decomposition and calculate Erlang C staffing for every future interval.
+Forecast future contact volume using recursive rolling profiles and calculate Erlang C staffing for every future interval. The existing stl-forecast URLs are retained for compatibility; the current forecasting method is ROLLING_PROFILE.
 
 ## Content type
 
@@ -66,11 +66,11 @@ multipart/form-data
 
 | Field | Type | Default | Required | Validation |
 |---|---|---:|---|---|
-| `files` | repeated file | — | yes | 1-20 non-empty `.csv`/`.txt` files; maximum 100 MiB per file |
+| `files` | repeated file | — | yes | 1-10 non-empty `.csv`/`.txt` files; maximum 25 MiB per file |
 | `interval_minutes` | integer | `30` | no | > 0 and exact divisor of 1440 |
-| `forecast_days` | integer | `365` | no | 1-3650; `365` expands to 366 days for a leap output year |
-| `seasonal_period` | integer or omitted | automatic | no | Effective cycle >= 2 intervals; omitted or `0` uses weekly seasonality |
-| `trend_lookback_days` | integer | `90` | no | >= 7 |
+| `forecast_days` | integer | `365` | no | 1-3650; the default 365 selects the automatic forecast period below |
+| `seasonal_period` | integer or omitted | automatic | no | Compatibility metadata; >= 2 when nonzero; omitted/0 resolves to intervals per week |
+| `trend_lookback_days` | integer | `90` | no | Compatibility metadata; >= 7 |
 | `target_seconds` | number | `20` | no | >= 0 |
 | `target_service_level` | number | `80` | no | after percent conversion, strictly between 0 and 1 |
 | `shrinkage` | number | `30` | no | after percent conversion, >= 0 and < 1 |
@@ -79,7 +79,7 @@ multipart/form-data
 
 Both `80` and `0.80` are accepted as an 80% service-level target. Likewise `30` and `0.30` represent 30% shrinkage. Values greater than 1 are divided by 100; values at or below 1 are interpreted as fractions. Exactly `1` means 100% and is rejected for both settings. Send numeric form values without a `%` suffix.
 
-Omit `seasonal_period` for automatic weekly seasonality; the current implementation also treats `0` as automatic. Nonzero values must be at least 2, and the historical series must contain at least two complete cycles. The effective trend lookback is capped at the available historical trend.
+The legacy seasonal_period and trend_lookback_days fields are validated and echoed in responses, but do not control the current rolling-profile calculation.
 
 ### Dashboard request settings
 
@@ -97,15 +97,26 @@ The dashboard exposes only file selection, target answer seconds (default `20`),
 
 The table's display interval defaults to 1 hour and can be changed to 0.5, 1, 2, 4, or 8 hours. This groups returned rows; it does not change the forecast request or rerun Erlang C.
 
-## Forecast dates and leap years
+## Forecast dates and automatic duration
 
-The forecast starts on January 1 of `output_year`, which is the latest historical year plus one. A request with `forecast_days=365` produces a complete output year, including February 29 in leap years. Other horizon values retain their requested number of consecutive calendar days.
+With forecast_days omitted or set to 365, the inclusive span from the earliest to latest valid input timestamp determines the prediction period:
 
-For a leap output year, an annual request returns `days: 366` and, at `interval_minutes=30`, `forecast_interval_count: 17568`. `parameters.forecast_days` still records the original request value (`365`). The historical preprocessing step that removes February 29 applies only to historical inputs; future forecast dates include leap day.
+| Historical date span | Returned period |
+|---|---|
+| 1-6 days | Next day |
+| 7-27 days | Next 7 days, starting after the last input day |
+| 28 days to less than 12 calendar months | Next full calendar month |
+| 12 calendar months or more | Next full calendar year |
+
+Days between the first and last valid records count toward this span even when no calls were recorded on them. The response's historical_days counts distinct dates with valid calls; it can be smaller than the span used to select the horizon.
+
+August 1-31, 2026 data returns September 1-30, 2026: days=30 and 1,440 half-hour intervals. A 28-day span ending mid-August also returns September. Annual forecasts include 366 days when the next calendar year is a leap year.
+
+A non-default forecast_days value requests that many days immediately after the latest historical day, except inputs spanning fewer than seven days always predict one day. Both days and parameters.forecast_days report the effective output duration. output_year is the first forecast date's year.
 
 ## CDR file schema
 
-Seven columns, no header expected:
+The original format has seven columns without a header:
 
 ```text
 source,destination,call_datetime,duration,disposition,unique_id,caller_id
@@ -119,7 +130,7 @@ UTF-8-SIG + comma
 Latin-1 + comma
 ```
 
-Expected call timestamp format:
+Example supported call timestamp format:
 
 ```text
 %Y-%b-%d %I:%M:%S %p
@@ -131,7 +142,7 @@ Example:
 2024-Mar-12 03:25:19 PM
 ```
 
-Duration must be `HH:MM:SS`.
+Duration supports HH:MM:SS or day/hour/minute/second text in header-based exports.
 
 ## CDR cleaning
 
@@ -162,34 +173,13 @@ read file
 → combine all available history
 ```
 
-Forecasting starts on the day after the latest available record. If fewer than seven recorded calendar days are available, only the next one day is returned. For example, Aug 30 and Aug 31 produce a Sep 1 forecast, but no Sep 2 forecast. After seven recorded days, future profiles are generated recursively using expanding prior-day history, prior weekly history, prior monthly history, and prior-year same-period history. Newly supplied records are included in the history used for later predictions.
+The forecast window follows the automatic-duration rules above. Available call intervals from every file are combined; overlapping records are added rather than deduplicated. Missing months are not padded into a full calendar year.
 
-### Default seasonality
-
-```text
-intervals_per_day = 1440 / interval_minutes
-seasonal_period = intervals_per_day * 7
-```
-
-At 30 minutes:
-
-```text
-seasonal_period = 336
-```
-
-### Rolling forecast equation
-
-Conceptually:
-
-```text
-future_day_profile = mean(selected_prior_day_profiles)
-```
-
-The selected prior profiles expand from day history to weekly, monthly, and yearly matching periods as the forecast advances. The result is rounded and clipped to zero or above.
+Each forecast day's call profile is estimated from earlier daily profiles. Depending on available profile history, the calculation uses earlier days, matching weekdays, month-position matches, or prior-year period matches, with fallback profiles. Predicted days are then included when predicting later days. The current implementation does not run STL decomposition.
 
 ### Future AHT
 
-Future AHT is calculated from historical weighted AHT by weekly time slot. Missing slots fall back to global weighted historical AHT.
+Future AHT is calculated from historical weighted AHT by time-of-day slot. Missing slots fall back to global weighted historical AHT.
 
 ### Erlang C
 
@@ -223,10 +213,11 @@ Representative shape:
 
 ```json
 {
-  "method": "STL",
-  "logic": "STL weekly decomposition with linear trend extrapolation and repeated seasonal cycle.",
+  "method": "ROLLING_PROFILE",
+  "logic": "Expanding day profiles, then weekly, monthly, and prior-year same-period profiles with new records included.",
   "dataset_count": 2,
   "historical_years": [2023, 2024],
+  "historical_days": 731,
   "output_year": 2025,
   "days": 365,
   "interval_minutes": 30,
@@ -252,12 +243,9 @@ Representative shape:
     "datasets": []
   },
   "decomposition_summary": {
-    "historical_intervals": 35040,
-    "trend_last_value": 10.1,
-    "trend_slope_per_interval": 0.00001234,
-    "seasonal_min": -5.2,
-    "seasonal_max": 7.8,
-    "residual_std": 2.4
+    "historical_intervals": 35088,
+    "prediction_start": "2025-01-01T00:00:00",
+    "prediction_strategy": "day-to-day, week-to-week, month-to-month, then year-to-year rolling profiles"
   },
   "parameters": {
     "interval_minutes": 30,
@@ -375,38 +363,54 @@ Generate a monthly schedule from forecast staffing requirements.
 
 ## Request model
 
+Send the forecast rows returned by the sync endpoint or result.forecast from a completed job. A minimal valid JSON example is:
+
 ```json
 {
-  "forecast": [...],
-  "year": 2025,
-  "month": 1,
-  "agent_count": null
+  "forecast": [
+    {"interval_start": "2026-09-01T06:00:00", "scheduled_agents": 2},
+    {"interval_start": "2026-09-01T06:30:00", "scheduled_agents": 3}
+  ],
+  "year": 2026,
+  "month": 9,
+  "agent_count": 8,
+  "shift_start_times": ["06:00", "14:00", "22:00"]
 }
 ```
 
+This small example demonstrates the request format. Supply the complete forecast for actual monthly staffing, including adjacent dates when available for overnight shifts.
+
 | Field | Type | Validation |
 |---|---|---|
-| `forecast` | array | 1-40,000 rows |
-| `year` | integer | Required |
-| `month` | integer | 1 to 12 |
-| `agent_count` | integer/null | 1-10,000 when supplied; must be >= minimum estimated headcount |
+| forecast | array | 1-40,000 rows containing interval_start and scheduled_agents |
+| year | integer | Required |
+| month | integer | 1-12 |
+| agent_count | integer/null | Optional; 1-10,000 and at least the estimated minimum; null calculates it |
+| shift_start_times | array of strings/null | Optional; exactly three HH:MM times, eight hours apart in shift order |
 
-The forecast must contain at least:
+Save the JSON above as schedule-request.json, then run:
 
-```text
-interval_start
-scheduled_agents
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/schedule/monthly" -H "Content-Type: application/json" --data-binary "@schedule-request.json"
 ```
+
+In PowerShell, use curl.exe for these curl examples.
 
 ## Shift model
 
-```text
-NIGHT   00:00-08:00
-MORNING 08:00-16:00
-EVENING 16:00-00:00
-```
+Each shift lasts exactly eight hours. Defaults are 00:00, 08:00 and 16:00. With the example above:
 
-Required agents for each shift equal the maximum `scheduled_agents` value inside that shift.
+| Shift code | Start | End |
+|---|---|---|
+| NIGHT (1st shift) | 06:00 | 14:00 |
+| MORNING (2nd shift) | 14:00 | 22:00 |
+| EVENING (3rd shift) | 22:00 | 06:00 the next day |
+
+Codes remain stable identifiers even when custom times change their time of day. For example, 06:15, 14:15 and 22:15 are valid. Times that overlap or leave gaps, such as 06:00, 14:00 and 23:00, return HTTP 400. A list with a length other than three fails request validation with HTTP 422.
+
+An overnight assignment belongs to its start date. Required agents are the peak scheduled_agents over forecast intervals overlapping the full shift, including the next date when supplied. At a forecast boundary only available intervals can be evaluated; the first date's early hours belong to the previous date's overnight assignment.
+
+summary.shifts reports code, name, start_hour, end_hour and label for all three shifts. end_hour can exceed 24 for overnight shifts. Schedule rows use the configured time range in shift.
 
 ## Headcount model
 
@@ -432,6 +436,8 @@ The estimate does not guarantee full coverage under the greedy assignment and re
 
 ## Response
 
+Illustrative response with default shift times (values are not the result of the minimal request above):
+
 ```json
 {
   "summary": {
@@ -440,6 +446,11 @@ The estimate does not guarantee full coverage under the greedy assignment and re
     "minimum_agents": 30,
     "agent_count": 30,
     "shift_hours": 8,
+    "shifts": [
+      {"code": "NIGHT", "name": "Night", "start_hour": 0, "end_hour": 8, "label": "00:00-08:00"},
+      {"code": "MORNING", "name": "Morning", "start_hour": 8, "end_hour": 16, "label": "08:00-16:00"},
+      {"code": "EVENING", "name": "Evening", "start_hour": 16, "end_hour": 24, "label": "16:00-00:00"}
+    ],
     "working_days_per_week": 5,
     "days_off_per_week": 2,
     "total_required_shift_assignments": 600,
@@ -492,13 +503,12 @@ Limits are defined in `app/config.py` and the request models in `app/schemas/sch
 
 | Input | Limit |
 |---|---|
-| Forecast uploads | 20 files, 100 MiB per file |
+| Forecast uploads | 10 files, 25 MiB per file |
 | Requested forecast horizon | 1-3650 days |
 | `max_agents` / supplied monthly `agent_count` | 1-10,000 |
 | Forecast rows in monthly JSON requests | 1-40,000 |
-| Agent ID fields | 1-100 characters |
 
-These array limits apply to incoming scheduling requests; generating a large forecast or roster does not guarantee it fits a subsequent request. Supply the relevant month's source forecast rows when needed. The CSV's aggregated display columns do not replace the original API fields.
+These array limits apply to incoming scheduling requests; generating a large forecast or roster does not guarantee it fits a subsequent request. Supply the relevant month's source forecast rows and available neighboring intervals for overnight shifts when needed. The CSV's aggregated display columns do not replace the original API fields.
 
 Request examples using `[...]` are schematic: replace each placeholder with the actual returned forecast or schedule rows before sending JSON.
 
@@ -522,7 +532,7 @@ Returned when a polling or streaming request uses an unknown job ID. Jobs are lo
 
 ## 413 Content Too Large
 
-Returned when an uploaded file exceeds `100 * 1024 * 1024` bytes (100 MiB).
+Returned when an uploaded file exceeds `25 * 1024 * 1024` bytes (25 MiB).
 
 ## 422 Unprocessable Entity
 
@@ -571,3 +581,5 @@ Both CSV downloads use UTF-8 with BOM and CRLF line endings, with commas, quotes
 The API does not store forecasts or schedules in a database. Async job results live in process memory and disappear on restart. The dashboard keeps its forecast and current schedule in browser memory until a new forecast starts or the page is reloaded. Monthly schedule requests supply the forecast rows.
 
 The leave and shift-swap APIs have been removed.
+
+The CSV downloads are generated by the browser; there is no dedicated CSV API endpoint. Removed leave and swap routes return HTTP 404.
