@@ -66,8 +66,6 @@ Calculator-Erlang-C/
 |-- static/index.html              # Dashboard, filters, and CSV generation
 |-- requirements.txt
 |-- api_documentation.md
-|-- Forecast_Comparison.ipynb       # Forecast exploration notebook
-|-- refactor.md                    # Refactoring notes
 ```
 
 ## Dashboard workflow
@@ -327,14 +325,6 @@ Compile application modules:
 ```bash
 python -m compileall app api.py calculator.py
 ```
-
-If the local `tests/` directory is present, run its unittest checks:
-
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
-
-The current `.gitignore` excludes `tests/`, so local tests may not be available in a fresh clone. The notebook and refactoring notes are supporting material; runtime behaviour is implemented in `app/` and `static/index.html`.
 
 ### Automatic forecast periods
 
