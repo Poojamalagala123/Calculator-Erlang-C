@@ -10,6 +10,25 @@ Forecasts use robust seasonal-trend decomposition with LOESS (STL) when the hist
 
 The browser submits a background forecast job, displays progress and charts, builds monthly schedules, displays daily scheduled-agent counts, and supports yearly CSV downloads. [API documentation](api_documentation.md) contains endpoint examples and response details.
 
+## Run with Docker
+
+Docker Compose builds and runs the application as one container. Docker Desktop (or Docker Engine with the Compose plugin) is required.
+
+```powershell
+docker compose up --build
+```
+
+Open `http://127.0.0.1:8000/`; the health endpoint is `http://127.0.0.1:8000/health`. To use another local port, set `APP_PORT` before starting Compose:
+
+```powershell
+$env:APP_PORT = "8080"
+docker compose up --build
+```
+
+The service listens only on the local machine by default. Application logs persist in the `app-logs` Docker volume; uploaded files are temporary and are removed when processing finishes. View logs with `docker compose logs -f app`, and stop the container with `docker compose down`.
+
+This deployment intentionally runs one Uvicorn worker because background jobs and results are held in process memory. Do not scale this service to multiple containers or workers until job state is moved to shared durable storage. For remote access, place it behind an authenticated HTTPS reverse proxy; the application itself does not provide authentication.
+
 ## Quick start
 
 Use Python 3.10 or later. Dependencies are listed in [requirements.txt](requirements.txt): pandas, NumPy, statsmodels, pyworkforce, FastAPI, Uvicorn, and python-multipart. There is no frontend build step.

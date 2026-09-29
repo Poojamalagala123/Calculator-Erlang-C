@@ -22,3 +22,5 @@ logs/
 *.sqlite3
 
 tests/
+docs/
+postman/
