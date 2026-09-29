@@ -613,7 +613,7 @@
             </div>
 
             <div class="chart-box" id="weekdayChartBox">
-                <h2 id="weekdayChartTitle">Average calls by weekday</h2>
+                <h2 id="weekdayChartTitle">Average daily calls by weekday</h2>
 
                 <div class="chart-container">
                     <canvas id="weekdayChart"></canvas>
@@ -1206,14 +1206,8 @@
 
     function selectedDateForDay(dayIndex) {
         if (selectedWeek === "all") return null;
-        const dates = Object.keys(precomputedDailyData).filter(date => {
-            const parts = calendarParts(date);
-            return parts.month === chartMonthNumber(selectedMonthIndex)
-                && parts.weekday === dayIndex;
-        });
-        return dates.find(date => weekNumberForDate(date) === Number(selectedWeek))
-            || dates[0]
-            || null;
+        const week = currentMonthWeeks.find(item => item.weekNumber === Number(selectedWeek));
+        return week?.days[dayIndex] || null;
     }
 
     function resetTimeChart() {
@@ -1316,38 +1310,32 @@
         let titleText = "";
 
         if (week === "all") {
-            titleText = `Average calls by weekday — ${monthLabel} (All Weeks)`;
-            datasetLabel = `Average calls per interval (${monthLabel})`;
+            titleText = `Average daily calls by weekday — ${monthLabel} (All Weeks)`;
+            datasetLabel = `Average daily calls (${monthLabel})`;
 
             chartDataValues = weekdayOrder.map((name, i) => {
                 let totalCalls = 0;
-                let totalIntervals = 0;
+                let totalDays = 0;
                 for (const dateStr in precomputedDailyData) {
                     const rec = precomputedDailyData[dateStr];
                     const parts = calendarParts(dateStr);
                     if (parts.month === monthNumber && parts.weekday === i) {
                         totalCalls += rec.totalCalls;
-                        totalIntervals += rec.intervalCount;
+                        totalDays += 1;
                     }
                 }
-                return totalIntervals > 0 ? Number((totalCalls / totalIntervals).toFixed(2)) : 0;
+                return totalDays > 0 ? Number((totalCalls / totalDays).toFixed(2)) : null;
             });
-            if (!chartDataValues.some(value => value > 0)) {
-                chartDataValues = weekdayAggregateValues();
-            }
         } else {
-            titleText = `Average calls by weekday — ${monthLabel} (Week ${week})`;
-            datasetLabel = `Average calls per interval (Week ${week})`;
+            titleText = `Average daily calls by weekday — ${monthLabel} (Week ${week})`;
+            datasetLabel = `Daily calls (Week ${week})`;
 
             chartDataValues = weekdayOrder.map((name, i) => {
                 const dateStr = selectedDateForDay(i);
                 const dayRec = precomputedDailyData[dateStr];
-                if (!dayRec) return 0;
-                return Number((dayRec.totalCalls / (dayRec.intervalCount || 48)).toFixed(2));
+                if (!dayRec) return null;
+                return Number(dayRec.totalCalls.toFixed(2));
             });
-            if (!chartDataValues.some(value => value > 0)) {
-                chartDataValues = weekdayAggregateValues();
-            }
         }
 
         const titleElem = document.getElementById("weekdayChartTitle");
@@ -1473,7 +1461,7 @@
 
         const titleElem = document.getElementById("weekdayChartTitle");
         if (titleElem) {
-            titleElem.textContent = `Average calls by weekday — ${firstMonthLabel} (Week ${selectedWeek})`;
+            titleElem.textContent = `Average daily calls by weekday — ${firstMonthLabel} (Week ${selectedWeek})`;
         }
 
         weekdayChartInstance = makeChart(
@@ -1482,14 +1470,14 @@
             weekdayOrder,
             [
                 {
-                    label: `Average calls per interval (Week ${selectedWeek})`,
+                    label: `Daily calls (Week ${selectedWeek})`,
                     data: [],
                     backgroundColor: "rgba(52, 168, 83, 0.7)",
                     borderColor: "#1e8e3e",
                     borderWidth: 1
                 }
             ],
-            "Calls",
+            "Calls per day",
             {
                 onClick: (event, elements) => {
                     if (elements.length) selectDay(elements[0].index);
@@ -1507,8 +1495,8 @@
                                 const date = selectedDateForDay(context.dataIndex);
                                 const day = date && precomputedDailyData[date];
                                 return day
-                                    ? ` ${date}: ${val} calls/interval (${day.totalCalls.toLocaleString()} total)`
-                                    : ` Average: ${val} calls/interval`;
+                                    ? ` ${date}: ${val} calls`
+                                    : ` Average: ${val} calls/day`;
                             }
                         }
                     }

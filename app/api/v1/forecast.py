@@ -32,13 +32,13 @@ async def _save_upload(upload: UploadFile, destination: Path) -> None:
     if total_bytes == 0:
         raise HTTPException(status_code=400, detail=f"{upload.filename or 'Uploaded file'} is empty.")
 
-@router.post("/stl-forecast")
+@router.post("/stl-forecast", summary="Forecast demand and staffing", description="Generate rolling-profile forecasts and Erlang C staffing. The legacy URL is retained for compatibility.")
 async def stl_forecast(
     files: Annotated[list[UploadFile], File(description="One or more CDR CSV files with at least one day of valid records")],
     interval_minutes: Annotated[int, Form()] = 30,
-    forecast_days: Annotated[int, Form()] = 365,
-    seasonal_period: Annotated[int | None, Form()] = None,
-    trend_lookback_days: Annotated[int, Form()] = 90,
+    forecast_days: Annotated[int, Form(description="365 selects automatic duration: 1-6 historical days -> next day; 7-27 -> next 7 days; 28 days to under 12 months -> next calendar month; 12+ months -> next calendar year. Other values override, except histories under 7 days always predict one day.")] = 365,
+    seasonal_period: Annotated[int | None, Form(description="Legacy compatibility metadata; not used to calculate rolling profiles. Nonzero values must be at least 2.")] = None,
+    trend_lookback_days: Annotated[int, Form(description="Legacy compatibility metadata; must be at least 7. Not used to calculate rolling profiles.")] = 90,
     target_seconds: Annotated[float, Form()] = 20,
     target_service_level: Annotated[float, Form()] = 80,
     shrinkage: Annotated[float, Form()] = 30,
@@ -108,13 +108,13 @@ async def stl_forecast(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"STL forecast failed: {exc}") from exc
 
-@router.post("/stl-forecast/async")
+@router.post("/stl-forecast/async", summary="Submit a background forecast", description="Accept uploads and return a job ID. Poll /api/v1/jobs/{job_id} for the forecast result or processing errors.")
 async def stl_forecast_async(
     files: Annotated[list[UploadFile], File(description="One or more CDR CSV files with at least one day of valid records")],
     interval_minutes: Annotated[int, Form()] = 30,
-    forecast_days: Annotated[int, Form()] = 365,
-    seasonal_period: Annotated[int | None, Form()] = None,
-    trend_lookback_days: Annotated[int, Form()] = 90,
+    forecast_days: Annotated[int, Form(description="365 selects automatic duration: 1-6 historical days -> next day; 7-27 -> next 7 days; 28 days to under 12 months -> next calendar month; 12+ months -> next calendar year. Other values override, except histories under 7 days always predict one day.")] = 365,
+    seasonal_period: Annotated[int | None, Form(description="Legacy compatibility metadata; not used to calculate rolling profiles. Nonzero values must be at least 2.")] = None,
+    trend_lookback_days: Annotated[int, Form(description="Legacy compatibility metadata; must be at least 7. Not used to calculate rolling profiles.")] = 90,
     target_seconds: Annotated[float, Form()] = 20,
     target_service_level: Annotated[float, Form()] = 80,
     shrinkage: Annotated[float, Form()] = 30,

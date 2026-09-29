@@ -14,8 +14,8 @@ def create_app() -> FastAPI:
     application = FastAPI(
         title="CDR STL Forecast & Agent Scheduling API",
         description=(
-            "Decoupled, Asynchronous, and Optimized API for Contact Centre Demand "
-            "Forecasting using STL Decomposition and Erlang C Staffing."
+            "Contact-centre demand forecasting using rolling profiles, Erlang C staffing, "
+            "and monthly scheduling with three configurable 8-hour shifts."
         ),
         version="4.1.0",
     )

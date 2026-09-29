@@ -8,7 +8,12 @@ from app.core.scheduling import build_monthly_agent_schedule
 
 router = APIRouter(prefix="/schedule", tags=["Agent Scheduling"])
 
-@router.post("/monthly")
+@router.post(
+    "/monthly",
+    summary="Generate a monthly agent schedule",
+    description="Create three 8-hour shifts using optional shift_start_times. Returns schedule rows and summary.shifts plus coverage counts. Assignments use start dates for overnight shifts; inspect coverage_ok for shortages.",
+    responses={400: {"description": "Invalid shift times, forecast data, or insufficient agents."}},
+)
 def monthly_schedule(request: MonthlyScheduleRequest) -> dict:
     try:
         forecast = pd.DataFrame(request.forecast)
