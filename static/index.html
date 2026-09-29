@@ -502,7 +502,7 @@
                         id="fileRequirementNote"
                         class="note"
                     >
-                        Upload one or more CDR files containing historical call records.
+                        Upload historical CDR files. At least 14 calendar days uses weekly STL; shorter histories use rolling profiles. Gaps are treated as zero calls.
                     </div>
 
                     <div
@@ -1863,7 +1863,7 @@
                     "status success";
 
                 statusElement.textContent =
-                    `Completed STL forecast: ${data.days} days, period ${data.seasonal_period}, and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.`;
+                    `Completed ${data.method === "STL" ? "STL decomposition" : "rolling-profile fallback"} forecast: ${data.days} days, period ${data.seasonal_period}, and ${data.forecast_interval_count.toLocaleString()} Erlang C intervals.${data.decomposition_summary?.fallback_reason ? " " + data.decomposition_summary.fallback_reason : ""}`;
 
             }
 

@@ -55,7 +55,7 @@ def build_dashboard_aggregates(forecast: pd.DataFrame) -> dict:
     )
 
     def records(df: pd.DataFrame) -> list[dict]:
-        return df.round(2).where(pd.notna(df), None).to_dict(orient="records")
+        return df.round(2).astype(object).where(pd.notna(df), None).to_dict(orient="records")
 
     return {
         "monthly": records(monthly.drop(columns=["month_number"])),

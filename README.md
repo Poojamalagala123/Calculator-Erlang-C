@@ -1,8 +1,8 @@
 # CDR STL Forecast & Agent Scheduling
 
-FastAPI application for forecasting contact-centre call demand from historical CDR files using recursive rolling profiles, calculating Erlang C staffing, and generating monthly agent rosters.
+FastAPI application for forecasting contact-centre call demand from historical CDR files using STL decomposition with a rolling-profile fallback for short histories, calculating Erlang C staffing, and generating monthly agent rosters.
 
-The application name, dashboard button, and `/stl-forecast` URLs retain the legacy STL name. The current algorithm returns `method: ROLLING_PROFILE`; it does not perform STL decomposition.
+Forecasts use robust seasonal-trend decomposition with LOESS (STL) when the historical date span is at least 14 days and contains two seasonal cycles. Shorter histories use rolling profiles. Responses identify the actual method as `STL` or `ROLLING_PROFILE`; the dashboard completion message shows the method and any fallback reason.
 
 **Application version:** `4.1.0`
 
@@ -12,7 +12,7 @@ The browser submits a background forecast job, displays progress and charts, bui
 
 ## Quick start
 
-Use Python 3.10 or later. Dependencies are listed in [requirements.txt](requirements.txt): pandas, NumPy, pyworkforce, FastAPI, Uvicorn, and python-multipart. There is no frontend build step.
+Use Python 3.10 or later. Dependencies are listed in [requirements.txt](requirements.txt): pandas, NumPy, statsmodels, pyworkforce, FastAPI, Uvicorn, and python-multipart. There is no frontend build step.
 
 ### Windows PowerShell
 
@@ -60,7 +60,7 @@ Calculator-Erlang-C/
 |   |-- core/
 |   |   |-- constants.py           # CDR fields, forecast fields, shift definitions
 |   |   |-- ingestion/             # CDR parsing, cleaning, interval construction
-|   |   |-- forecasting/           # Rolling-profile forecasts and dashboard aggregates
+|   |   |-- forecasting/           # STL/fallback forecasts and dashboard aggregates
 |   |   |-- queuing/               # Erlang C calculations and staffing cache
 |   |   `-- scheduling/           # Monthly rosters, shift times, and rest constraints
 |   `-- workers/                   # In-memory jobs and background forecast worker
@@ -97,8 +97,8 @@ The forecast form exposes these three inputs. Other forecasting parameters are s
 |---|---|---|
 | `interval_minutes` | `30` | Forecast and Erlang C source intervals are 30 minutes |
 | `forecast_days` | `365` | Selects the automatic forecast period from the historical date span |
-| `seasonal_period` | `336` | Legacy metadata: 48 intervals/day multiplied by 7; does not control predictions |
-| `trend_lookback_days` | `90` | Legacy metadata; does not control predictions |
+| `seasonal_period` | `336` | Weekly STL cycle: 48 intervals/day multiplied by 7 |
+| `trend_lookback_days` | `90` | Recent STL trend window used for linear extrapolation |
 | `shrinkage` | `30` | 30% shrinkage |
 | `include_forecast_rows` | `true` | Return rows needed by the tables and scheduler |
 | `max_agents` | Not sent; API default `1000` | Maximum permitted raw or scheduled staffing per interval |
@@ -114,8 +114,8 @@ Both `POST /api/v1/cdr/stl-forecast` and `POST /api/v1/cdr/stl-forecast/async` a
 | `files` | Repeated uploaded file | Required | 1-10 non-empty `.csv`/`.txt` files; at most 25 MiB per file |
 | `interval_minutes` | Integer | `30` | Positive exact divisor of 1440 |
 | `forecast_days` | Integer | `365` | 1-3650; `365` selects the automatic forecast period below |
-| `seasonal_period` | Integer or omitted | Automatic | Legacy metadata; effective period must be at least 2 |
-| `trend_lookback_days` | Integer | `90` | Legacy metadata; at least 7 |
+| `seasonal_period` | Integer or omitted | Automatic | STL cycle in intervals; effective period must be at least 2 |
+| `trend_lookback_days` | Integer | `90` | Days of STL trend used for extrapolation; at least 7, limited to available history |
 | `target_seconds` | Number | `20` | Non-negative Erlang C answer-time target in seconds |
 | `target_service_level` | Number | `80` | Converted fraction must be strictly between 0 and 1 |
 | `shrinkage` | Number | `30` | Converted fraction must be at least 0 and less than 1 |
@@ -124,7 +124,7 @@ Both `POST /api/v1/cdr/stl-forecast` and `POST /api/v1/cdr/stl-forecast/async` a
 
 Percentage conversion divides values greater than 1 by 100; values at or below 1 are interpreted as fractions. Thus `80` and `0.8` both mean 80%, and `30` and `0.3` both mean 30% shrinkage. Exactly `1` means 100% and is rejected for both service level and shrinkage. Submit numeric form values, without a `%` suffix.
 
-Omitting `seasonal_period` uses `(1440 // interval_minutes) * 7`. The current implementation also treats `0` as automatic. A nonzero supplied value must resolve to at least 2 intervals. Neither this field nor `trend_lookback_days` controls the rolling-profile calculation; two seasonal cycles are not required.
+Omitting `seasonal_period` uses `(1440 // interval_minutes) * 7`. The current implementation also treats `0` as automatic. A nonzero supplied value must resolve to at least 2 intervals. STL requires at least two cycles and a 14-day historical span. If either requirement is unmet, the response explicitly reports rolling-profile fallback. These parameters control STL, not the fallback calculation.
 
 Valid interval examples include `5`, `10`, `15`, `20`, `30`, `60`, `120`, `240`, and `480`; `35` is invalid. Larger API horizons are supported, but the dashboard and yearly downloads are designed around one output year. Scheduling request arrays have their own row limits.
 
@@ -171,18 +171,28 @@ Every file must retain at least one valid answered call. Records may cover parti
 
 ## Forecast calculations
 
-### Historical series and rolling prediction
+### Historical series and method selection
 
-The application combines cleaned records into fixed intervals. Overlapping uploads are added together; duplicate calls are not deduplicated. Only dates with valid calls initialize historical daily profiles; missing time slots on those dates have zero calls.
+The application combines cleaned records into fixed intervals. Overlapping uploads are added together; duplicate calls are not deduplicated. STL uses a continuous interval grid from midnight on the earliest valid date through the end of the latest valid date. Missing intervals and dates are filled with zero calls, including unrecorded hours at either boundary. This assumes the uploads cover those dates: a missing export is treated as no demand, not unknown demand.
 
-Each future date averages selected earlier daily profiles and rounds each interval to a whole call count. The selection depends on the number of available profiles, including already predicted dates:
+- **STL:** at least 14 calendar days and at least two cycles of `seasonal_period`. The default 336 half-hour intervals represents one week, so 14 days is the minimum.
+- **Rolling-profile fallback:** a span under 14 days, or insufficient history for two cycles of a larger custom period. `decomposition_summary.applied` is false and `fallback_reason` explains why. There is no silent fallback if STL itself fails.
 
-- Fewer than 7 profiles: all earlier days.
-- 7-30 profiles: matching weekdays, falling back to the latest 7 profiles.
-- 31-365 profiles: matching day-of-month and weekday, then matching weekdays, then the latest 31 profiles.
-- 366 or more profiles: matching month, day-of-month, and weekday, then matching month and weekday, then the latest 366 profiles.
+### STL decomposition and forecasting
 
-Predictions are added to the profile history for subsequent dates. This can produce identical weekday totals across multiple forecast weeks. Future AHT is calculated from historical handle time divided by calls for each time-of-day slot, with a global call-weighted AHT fallback.
+The implementation uses [`statsmodels.tsa.seasonal.STL`](https://www.statsmodels.org/stable/generated/statsmodels.tsa.seasonal.STL.html) with `robust=True` to separate observed call counts into **trend + seasonal + residual** components.
+
+1. Fit STL once to the historical interval series, using `seasonal_period` as the cycle length.
+2. Fit a straight line to the last `trend_lookback_days` of the extracted trend (or all available history if shorter).
+3. Extend that fitted trend line and repeat the final fitted seasonal cycle at the correct future calendar positions. Calendar gaps before the next month/year advance both the trend and seasonal phase.
+4. Add trend and seasonality, clip negative predictions to zero, and round to whole calls. Residual noise is not added to point forecasts. Predictions are not fed back into STL as observed history.
+5. Estimate AHT by historical time-of-day handle time divided by calls, with a global call-weighted fallback, then calculate Erlang C staffing.
+
+This is a single-seasonality model. It does not separately learn yearly seasonality or holidays. Linear trend extrapolation can grow or decline substantially over long horizons; forecasts are point estimates without prediction intervals or guaranteed accuracy. Validate them against held-out call data before operational staffing decisions.
+
+### Short-history rolling profiles
+
+The fallback averages earlier daily profiles, rounds interval counts, and adds predicted days to the profile history for later predictions. It uses all profiles with fewer than 7 available days; matching weekdays at 7-30; matching day-of-month/weekday at 31-365; and matching month/day/weekday thereafter, with progressively broader fallbacks. The longer-history rules apply only when a custom STL period is too large for two cycles. Missing slots on recorded dates have zero calls; dates with no valid calls do not initialize profiles.
 
 ### Forecast calendar
 
@@ -211,7 +221,7 @@ Zero-call intervals return zero traffic/agents, 100% service level, zero waiting
 
 ### Forecast response
 
-The response contains a `forecast` array, `charts`, `parameters`, and summary fields such as `dataset_count`, `historical_years`, `output_year`, `days`, `forecast_interval_count`, `total_predicted_calls`, maximum staffing, peak interval, source-file cleaning counts, and prediction metadata. The legacy `decomposition_summary` key contains historical interval count, prediction start, and strategy; it does not contain STL components.
+The response contains a `forecast` array, `charts`, `parameters`, and summary fields such as `dataset_count`, `historical_years`, `output_year`, `days`, `forecast_interval_count`, `total_predicted_calls`, maximum staffing, peak interval, source-file cleaning counts, and prediction metadata. `decomposition_summary` reports the method applied, full-grid and observed interval counts, zero-filled intervals, historical span, seasonal period, and prediction start. STL also reports trend endpoints/slope, actual trend lookback, seasonal range, residual standard deviation, and reconstruction error. Fallback responses report their reason instead of STL diagnostics.
 
 The actual forecast row columns are:
 
@@ -289,7 +299,7 @@ An overnight shift belongs to its start date. Staffing uses the peak forecast re
 4. **All weeks:** each weekday bar is total calls on that weekday divided by the number of available forecast dates for that weekday in the month. Zero-call dates count; missing dates do not.
 5. **Day selection:** clicking a weekday bar in a specific week highlights that date and displays its interval predictions in the time chart. Hovering shows its date and daily total. All-weeks mode shows average calls/day and does not select individual dates.
 6. **Average calls by time:** shows each time slot averaged over the selected week's dates, or the month's dates in All mode. Selecting a date shows its individual interval values. Changing month/week clears the date selection. If no interval rows are available for the selection, the current implementation falls back to the API's overall time-of-day averages.
-7. **Repeated bars:** different weeks can have identical forecast daily totals. Week selection still changes dates; it does not recalculate the forecast.
+7. **Repeated bars:** different weeks can have identical daily totals when the fitted trend is flat, rounding removes small differences, or rolling fallback repeats a pattern. Week selection changes dates; it does not recalculate the forecast.
 
 The weekday dashboard uses daily totals from `charts.daily` and forecast rows. The API's legacy `charts.weekday.average_calls` still means calls **per interval** across the whole forecast; it is not used for the dashboard's daily-call bars.
 
