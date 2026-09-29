@@ -79,7 +79,7 @@ multipart/form-data
 
 Both `80` and `0.80` are accepted as an 80% service-level target. Likewise `30` and `0.30` represent 30% shrinkage. Values greater than 1 are divided by 100; values at or below 1 are interpreted as fractions. Exactly `1` means 100% and is rejected for both settings. Send numeric form values without a `%` suffix.
 
-The legacy seasonal_period and trend_lookback_days fields are validated and echoed in responses, but do not control the current rolling-profile calculation.
+The legacy `seasonal_period` and `trend_lookback_days` fields are validated and echoed in responses, but do not control the current rolling-profile calculation.
 
 ### Dashboard request settings
 
@@ -156,7 +156,9 @@ A row is retained only when:
 - disposition is `Answered` by default;
 - duration is between 1 second and 4 hours by default.
 
-The reader also accepts the header-based call-export schema with `Call ID`, `Date`, `Caller ID`, `Queue`, and `Talk time`. `Date` is parsed as a normal timestamp, `Talk time` is converted from `HH:MM:SS` or day/hour/minute/second text, and positive talk time marks the call as answered.
+Read attempts use the pandas Python parser and check recognized headers before trying seven headerless columns. Upload names without an extension default to `.csv`.
+
+The reader also accepts the header-based call-export schema with `Call ID`, `Date`, `Caller ID`, `Queue`, and `Talk time`. `Date` is parsed as a normal timestamp, `Talk time` is converted from `HH:MM:SS` or day/hour/minute/second text, and rows are marked answered before duration cleaning; only durations from 1 second through 4 hours survive. Other export columns are ignored.
 
 ## Dataset validation
 
@@ -175,7 +177,7 @@ read file
 
 The forecast window follows the automatic-duration rules above. Available call intervals from every file are combined; overlapping records are added rather than deduplicated. Missing months are not padded into a full calendar year.
 
-Each forecast day's call profile is estimated from earlier daily profiles. Depending on available profile history, the calculation uses earlier days, matching weekdays, month-position matches, or prior-year period matches, with fallback profiles. Predicted days are then included when predicting later days. The current implementation does not run STL decomposition.
+Each forecast day's call profile is estimated from earlier daily profiles. Depending on available profile history, the calculation uses earlier days, matching weekdays, month-position matches, or prior-year period matches, with fallback profiles. Each interval mean is rounded to a whole call count. Predicted days are then included when predicting later days, so multiple weeks can have identical daily totals. The current implementation does not run STL decomposition.
 
 ### Future AHT
 
@@ -270,6 +272,23 @@ Representative shape:
 Example values above are illustrative; actual values come from the uploaded CDR data. Summary AHT uses weights `max(call_volume, 1)`. Summary service level, occupancy, and ASA are arithmetic means over intervals. `parameters.target_service_level_percent` and `parameters.shrinkage_percent` echo the original request values, so fractional inputs remain fractional in those fields.
 
 `day_of_year` is the calendar day-of-year, and `weekday` uses 0 for Monday through 6 for Sunday. Timestamps have no timezone suffix.
+
+## Chart response fields and dashboard calculations
+
+| Array | Fields and meaning |
+|---|---|
+| `charts.monthly` | `month_label`, total `call_volume`, `max_scheduled_agents`, mean `average_occupancy_percent`, mean `average_service_level_percent` |
+| `charts.daily` | `date`, total `call_volume`, `max_scheduled_agents`, mean `average_service_level_percent`, mean `average_occupancy_percent`, mean `average_asa_seconds` |
+| `charts.weekday` | `weekday_name` in Monday-Sunday order, `average_calls` per source interval across the entire forecast, `max_scheduled_agents` |
+| `charts.time_of_day` | `time_label` in HH:MM order, `average_calls` and `average_scheduled_agents` per time slot across the entire forecast |
+
+Aggregates are rounded to two decimal places. The monthly grouping uses month number/name without year, so it combines matching months across years.
+
+The dashboard's **Average daily calls by weekday** chart uses daily totals, not `charts.weekday.average_calls`. A selected week shows the call total for each date. All-weeks mode divides each weekday's total calls by the number of forecast dates for that weekday in the selected month, including zero-call dates. Weeks follow Monday-Sunday calendar boundaries; days outside the month or missing forecast dates are blank. Zero calls and missing data can both appear empty, but only real zero-call dates count in averages.
+
+Clicking a month selects its first calendar week; clicking a weekday bar in a specific week selects its exact date. The time chart averages source intervals by time slot for the selected week/month or shows one selected date. If no interval rows are available, it falls back to overall `charts.time_of_day` averages. Chart selections do not rerun the forecast.
+
+The dashboard calendar uses the first forecast year, and the table/forecast CSV filter to the output year. Multi-year API forecasts should be analyzed directly from the returned rows; the dashboard does not provide separate chart navigation for each year.
 
 ## Forecast row
 
@@ -378,6 +397,8 @@ Send the forecast rows returned by the sync endpoint or result.forecast from a c
 }
 ```
 
+The API roster covers every calendar date in the requested month, while coverage requirements use dates present in the forecast. The dashboard daily staffing table displays only forecast dates in that month.
+
 This small example demonstrates the request format. Supply the complete forecast for actual monthly staffing, including adjacent dates when available for overnight shifts.
 
 | Field | Type | Validation |
@@ -431,7 +452,7 @@ The estimate does not guarantee full coverage under the greedy assignment and re
 - no more than one shift per agent per day;
 - no more than five working days per Monday-Sunday week;
 - at least eight hours between successive working shifts within the generated month;
-- unassigned dates become `OFF`;
+- unassigned dates become `OFF`, including dates without forecast demand;
 - assignments are balanced using existing weekly workload, total assignments, shift-specific assignments, and agent ID.
 
 ## Response
@@ -566,7 +587,7 @@ CSV downloads are assembled in the browser. The forecast and scheduling endpoint
 | `Scheduled agents` | Maximum `scheduled_agents` within the hour |
 | `Service level %` | Call-weighted `service_level_percent`, formatted to two decimals |
 
-For zero-call hours, AHT and service level use arithmetic averages of the source intervals. These calculations match the dashboard table. The last hourly label ends at `24:00`. A full-year export contains 8,760 data rows, or 8,784 in a leap year. Forecasts created before leap-day support must be regenerated to include February 29.
+For zero-call hours, AHT and service level use arithmetic averages of the source intervals. These calculations match the dashboard table. The last hourly label ends at `24:00`. A full-year export contains 8,760 data rows, or 8,784 in a leap year. Shorter forecasts export only the available dates; the filename does not imply a complete year.
 
 ## Daily scheduled agents CSV
 
