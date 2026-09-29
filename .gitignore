@@ -21,5 +21,4 @@ logs/
 
 *.sqlite3
 
-tests/*
-tests/evidence/*
+tests/

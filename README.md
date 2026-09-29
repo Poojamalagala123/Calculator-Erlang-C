@@ -47,7 +47,6 @@ The dashboard loads Chart.js from jsDelivr. The application creates `static/` an
 ```text
 Calculator-Erlang-C/
 |-- api.py                         # Compatibility entry point
-|-- calculator.py                  # Compatibility exports from app.core
 |-- app/
 |   |-- main.py                    # App setup, routers, static files, request logging
 |   |-- config.py                  # Paths and application limits
@@ -61,7 +60,7 @@ Calculator-Erlang-C/
 |   |   |-- ingestion/             # CDR parsing, cleaning, interval construction
 |   |   |-- forecasting/           # STL forecast and dashboard aggregates
 |   |   |-- queuing/               # Erlang C calculations and staffing cache
-|   |   `-- scheduling/           # Monthly rosters and rest validation
+|   |   `-- scheduling/           # Monthly rosters, shift times, and rest constraints
 |   `-- workers/                   # In-memory jobs and background forecast worker
 |-- static/index.html              # Dashboard, filters, and CSV generation
 |-- requirements.txt
@@ -323,7 +322,7 @@ HTTP errors generally contain a `detail` field. Background completion and schedu
 Compile application modules:
 
 ```bash
-python -m compileall app api.py calculator.py
+python -m compileall app api.py
 ```
 
 ### Automatic forecast periods

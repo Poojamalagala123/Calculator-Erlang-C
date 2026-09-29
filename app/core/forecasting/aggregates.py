@@ -25,14 +25,12 @@ def build_dashboard_aggregates(forecast: pd.DataFrame) -> dict:
         frame.groupby("date", as_index=False)
         .agg(
             call_volume=("call_volume", "sum"),
-            weighted_handle_time=("aht_seconds", lambda values: 0.0),
             max_scheduled_agents=("scheduled_agents", "max"),
             average_service_level_percent=("service_level_percent", "mean"),
             average_occupancy_percent=("occupancy_percent", "mean"),
             average_asa_seconds=("asa_seconds", "mean"),
         )
     )
-    daily = daily.drop(columns=["weighted_handle_time"])
 
     weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     weekday = (

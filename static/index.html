@@ -963,7 +963,6 @@
     let timeChartInstance = null;
     let precomputedDailyData = {};
     let monthlyDataCache = [];
-    let weekdayAggregateCache = [];
     let timeOfDayAggregateCache = [];
     let forecastDateSet = new Set();
 
@@ -1098,21 +1097,6 @@
             month: parsed.getUTCMonth() + 1,
             weekday: (parsed.getUTCDay() + 6) % 7
         };
-    }
-
-    function weekdayAggregateValues() {
-        const values = Array(7).fill(0);
-        const weekdayIndexes = {
-            Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3,
-            Friday: 4, Saturday: 5, Sunday: 6
-        };
-        for (const row of weekdayAggregateCache) {
-            const weekday = weekdayIndexes[row.weekday_name];
-            if (weekday !== undefined) {
-                values[weekday] = Number(row.average_calls) || 0;
-            }
-        }
-        return values;
     }
 
     function getMonthWeeks(year, month) {
@@ -1420,7 +1404,6 @@
 
         const monthly = chartData.monthly || [];
         monthlyDataCache = monthly;
-        weekdayAggregateCache = chartData.weekday || [];
         timeOfDayAggregateCache = chartData.time_of_day || [];
 
         selectedMonthIndex = 0;
